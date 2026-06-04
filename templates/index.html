@@ -30,6 +30,9 @@
     .fx-meta { margin-top: 11px; font-size: 11px; color: #aaa; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; border-top: 1px solid #f0f0e8; padding-top: 9px; }
     .fx-meta-sep { color: #ddd; }
     .fx-meta-warn { color: #d97706; }
+    .fx-official-block { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e5e7eb; font-size: 12px; color: #777; }
+    .fx-official-title { font-weight: 600; margin-bottom: 4px; color: #666; }
+    .fx-official-rates { display: flex; gap: 18px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
     /* (régi fx-bar elemek eltávolítva – csak a kártyás forma maradt) */
 
     /* ===== KERESŐ PANEL ===== */
@@ -329,6 +332,10 @@
   let fx = {};
   let fxSource = '';
   let fxTimestamp = '';
+  let fxMode = 'market';
+  let fxRequestedMode = 'market';
+  let fxMarket = {};
+  let fxOfficial = {};
   let searchTimeout = null;
   let selectedStock = null;
 
@@ -355,14 +362,20 @@
       fx = d.fx || {};
       fxSource = d.source || '';
       fxTimestamp = d.timestamp || '';
+      fxMode = d.mode || 'market';
+      fxRequestedMode = d.requested_mode || fxMode;
+      fxMarket = d.market || {};
+      fxOfficial = d.official || {};
       if (d.errors && d.errors.length) {
         const needsFx = portfolio.some(s => {
           const c = (s.currency || '').toUpperCase();
           return c && c !== 'HUF';
         });
         if (needsFx) {
-          if (d.source === 'cache') {
-            appendBanner('Élő MNB árfolyam nem elérhető – az utolsó ismert árfolyamot használjuk.');
+          if ((fxRequestedMode === 'market' || fxRequestedMode === 'auto') && fxMode === 'official') {
+            appendBanner('Piaci árfolyam nem elérhető, MNB hivatalos napi árfolyamot használunk.');
+          } else if ((d.source || '').includes('cache')) {
+            appendBanner('Élő devizaárfolyam nem elérhető – az utolsó ismert árfolyamot használjuk.');
           } else if (d.source === 'none') {
             appendBanner('Devizaárfolyam nem elérhető, ezért a nem forintos részvények HUF összesítése nem pontos.');
           }
@@ -428,22 +441,36 @@
     }
     ratesHtml += '</div>';
 
-    const srcLabel = fxSource === 'MNB'       ? 'MNB'
-                   : fxSource === 'MNB/cache' ? 'MNB (cache)'
-                   : fxSource === 'cache'     ? 'utolsó ismert MNB árfolyam'
-                   : fxSource || 'MNB';
-    const srcWarn = fxSource === 'cache';
+    const srcLabel = fxMode === 'market'
+                   ? 'piaci árfolyam – ' + ((fxSource || '').replace(' FX', '') || 'Yahoo Finance / Stooq')
+                   : fxMode === 'official'
+                     ? 'MNB hivatalos napi árfolyam'
+                     : (fxSource || '').includes('cache')
+                       ? 'utolsó ismert árfolyam'
+                       : fxSource || 'MNB';
+    const srcWarn = (fxSource || '').includes('cache') || ((fxRequestedMode === 'market' || fxRequestedMode === 'auto') && fxMode === 'official');
 
     let tsText = '';
     if (fxTimestamp) {
       tsText = fxTimestamp.replace('T', ' ').substring(0, 16).replace(/-/g, '.').replace(' ', '. ');
     }
 
+    let officialHtml = '';
+    if (fxMode === 'market' && (fxRequestedMode === 'market' || fxRequestedMode === 'auto') && fxOfficial && (fxOfficial['EUR/HUF'] || fxOfficial['USD/HUF'])) {
+      officialHtml = `<div class="fx-official-block">
+        <div class="fx-official-title">MNB hivatalos napi árfolyam:</div>
+        <div class="fx-official-rates">
+          ${fxOfficial['EUR/HUF'] ? `<span>1 EUR = ${fmt2(fxOfficial['EUR/HUF'])} Ft</span>` : ''}
+          ${fxOfficial['USD/HUF'] ? `<span>1 USD = ${fmt2(fxOfficial['USD/HUF'])} Ft</span>` : ''}
+        </div>
+      </div>`;
+    }
+
     bar.innerHTML = `${title}${ratesHtml}
       <div class="fx-meta">
         <span class="${srcWarn ? 'fx-meta-warn' : ''}">Forrás: ${srcLabel}</span>
         ${tsText ? `<span class="fx-meta-sep">·</span><span>Frissítve: ${tsText}</span>` : ''}
-      </div>`;
+      </div>${officialHtml}`;
   }
 
   // ========== RÉSZVÉNYÁRFOLYAM ==========
@@ -516,9 +543,10 @@
       srcSet.add(s.split('/')[0].trim());
     });
     const pricesSrc = srcSet.size ? [...srcSet].join(' / ') : null;
-    const fxLabel = fxSource === 'MNB/cache' ? 'MNB (cache)'
-                  : fxSource === 'cache'      ? 'cache (utolsó ismert)'
-                  : fxSource === 'none'       ? 'nem elérhető'
+    const fxLabel = fxMode === 'market' ? ('piaci árfolyam – ' + ((fxSource || '').replace(' FX', '') || 'Yahoo Finance / Stooq'))
+                  : fxMode === 'official' ? 'MNB hivatalos napi árfolyam'
+                  : (fxSource || '').includes('cache') ? 'cache (utolsó ismert)'
+                  : fxSource === 'none' ? 'nem elérhető'
                   : fxSource || 'MNB';
 
     const el = document.getElementById('source-info');

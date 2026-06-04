@@ -22,7 +22,13 @@
           <td><code style="font-size:12px;color:#1a1a2e">{{ s.key }}</code></td>
           <td class="text-muted">{{ s.description or '–' }}</td>
           <td>
-            {% if s.value_type == 'bool' %}
+            {% if s.key == 'fx_rate_mode' %}
+              <select name="setting_{{ s.key }}" class="form-select" style="padding:5px 8px;font-size:13px">
+                <option value="market" {{ 'selected' if s.value == 'market' else '' }}>market</option>
+                <option value="official" {{ 'selected' if s.value == 'official' else '' }}>official</option>
+                <option value="auto" {{ 'selected' if s.value == 'auto' else '' }}>auto</option>
+              </select>
+            {% elif s.value_type == 'bool' %}
               <select name="setting_{{ s.key }}" class="form-select" style="padding:5px 8px;font-size:13px">
                 <option value="true" {{ 'selected' if s.value == 'true' else '' }}>true</option>
                 <option value="false" {{ 'selected' if s.value != 'true' else '' }}>false</option>

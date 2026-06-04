@@ -12,8 +12,10 @@ import app as flask_app
 
 
 @pytest.fixture(autouse=True)
-def _reset_engine_before_each():
+def _reset_engine_before_each(monkeypatch):
     """Minden teszt előtt törli az engine cache-t."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
     db_module.reset_engine()
     yield
     db_module.reset_engine()
@@ -121,6 +123,27 @@ def test_fx_structure(client):
     assert "errors" in d
     assert "source" in d
     assert "timestamp" in d
+
+
+def test_fx_response_is_frontend_compatible_with_market_and_official(client):
+    payload = {
+        "mode": "market",
+        "requested_mode": "market",
+        "fx": {"EUR/HUF": 353.9, "USD/HUF": 304.21},
+        "market": {"EUR/HUF": 353.9, "USD/HUF": 304.21, "source": "Yahoo Finance FX", "timestamp": "2026-06-04T16:15:00"},
+        "official": {"EUR/HUF": 355.14, "USD/HUF": 305.81, "source": "MNB", "date": "2026-06-04", "timestamp": "2026-06-04T10:00:00"},
+        "errors": [],
+        "source": "Yahoo Finance FX",
+        "timestamp": "2026-06-04T16:15:00",
+    }
+    with patch("app.get_fx_rates", return_value=payload):
+        r = client.get("/api/fx")
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["fx"]["EUR/HUF"] == 353.9
+    assert d["market"]["USD/HUF"] == 304.21
+    assert d["official"]["EUR/HUF"] == 355.14
+    assert d["source"] == "Yahoo Finance FX"
 
 
 def test_fx_has_eur_usd(client):

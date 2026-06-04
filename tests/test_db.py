@@ -18,6 +18,8 @@ from services.db import (
 def tmp_db(tmp_path, monkeypatch):
     """Minden teszt saját ideiglenes DB-t kap; engine cache törölve."""
     db_path = str(tmp_path / "test.db")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
     db_module.reset_engine()
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
     # Ne próbáljon JSON fájlokat migrálni

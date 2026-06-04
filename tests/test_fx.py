@@ -13,8 +13,15 @@ from services.fx import (
     _build_fx_dict,
     MNB_URL,
     MNB_SOAP_BODY,
+    YAHOO_FX_TICKERS,
     get_mnb_current_fx,
+    get_fx_rates,
+    get_stooq_fx,
 )
+
+
+def setup_function():
+    fx_module.cache.clear()
 
 # ---------------------------------------------------------------------------
 # Tesztadatok – belső XML (nem SOAP burok)
@@ -269,3 +276,71 @@ def test_currency_to_huf_gbp_lowercase():
 
 def test_currency_to_huf_unknown():
     assert currency_to_huf_rate("XYZ", {}) is None
+
+
+# ===========================================================================
+# Piaci FX provider tesztek
+# ===========================================================================
+
+def _fx_payload(mode, eur, usd, source):
+    rates = {"EUR": eur, "USD": usd}
+    return {
+        "mode": mode,
+        "fx": _build_fx_dict(rates),
+        "errors": [],
+        "source": source,
+        "timestamp": "2026-06-04T10:00:00",
+        "date": "2026-06-04",
+    }
+
+
+def test_yahoo_eurhuf_mapping():
+    assert YAHOO_FX_TICKERS["EUR"] == "EURHUF=X"
+
+
+def test_yahoo_usdhuf_mapping():
+    assert YAHOO_FX_TICKERS["USD"] == "USDHUF=X"
+
+
+def test_stooq_eurhuf_fallback():
+    mock_resp = MagicMock()
+    mock_resp.text = "Symbol,Date,Time,Open,High,Low,Close,Volume\nEURHUF,2026-06-04,16:15,353,354,352,353.9,0\n"
+    mock_resp.raise_for_status = MagicMock()
+    with patch("services.fx.requests.get", return_value=mock_resp) as mock_get:
+        result = get_stooq_fx(["EUR"])
+    assert result["rates"]["EUR"] == 353.9
+    assert "eurhuf" in mock_get.call_args[0][0]
+
+
+def test_get_fx_rates_market_mode_returns_market_value():
+    market = _fx_payload("market", 353.9, 304.21, "Yahoo Finance FX")
+    official = _fx_payload("official", 355.14, 305.81, "MNB")
+    with patch("services.fx.get_market_fx", return_value=market), \
+         patch("services.fx.get_official_mnb_fx", return_value=official):
+        result = get_fx_rates("market")
+    assert result["mode"] == "market"
+    assert result["fx"]["EUR/HUF"] == 353.9
+    assert result["market"]["EUR/HUF"] == 353.9
+    assert result["official"]["EUR/HUF"] == 355.14
+
+
+def test_get_fx_rates_official_mode_returns_mnb_value():
+    official = _fx_payload("official", 355.14, 305.81, "MNB")
+    with patch("services.fx.get_official_mnb_fx", return_value=official), \
+         patch("services.fx.get_market_fx") as mock_market:
+        result = get_fx_rates("official")
+    assert result["mode"] == "official"
+    assert result["fx"]["USD/HUF"] == 305.81
+    mock_market.assert_not_called()
+
+
+def test_get_fx_rates_auto_falls_back_to_mnb_when_market_fails():
+    market = {"mode": "market", "fx": {}, "errors": ["market down"], "source": "none", "timestamp": "2026-06-04T10:00:00"}
+    official = _fx_payload("official", 355.14, 305.81, "MNB")
+    with patch("services.fx.get_market_fx", return_value=market), \
+         patch("services.fx.get_official_mnb_fx", return_value=official):
+        result = get_fx_rates("auto")
+    assert result["requested_mode"] == "auto"
+    assert result["mode"] == "official"
+    assert result["fx"]["EUR/HUF"] == 355.14
+    assert any("Piaci" in e for e in result["errors"])

@@ -35,7 +35,7 @@ from services.db import (create_user, delete_portfolio_item_by_id,
                           update_portfolio_qty, update_user, verify_password)
 from services.fx import get_fx_rates
 from services.settings_store import (get_all_settings_with_defaults,
-                                      get_bool, init_default_settings,
+                                      get_bool, get_setting, init_default_settings,
                                       save_setting)
 from services.stocks import get_prices_for_tickers, get_ticker_info
 
@@ -222,9 +222,7 @@ def index():
 @app.route("/api/fx")
 @login_required
 def get_fx():
-    if not get_bool("enable_mnb"):
-        return jsonify({"fx": {}, "errors": ["MNB lekérés kikapcsolva."], "source": "disabled", "timestamp": _ts()})
-    result = get_fx_rates()
+    result = get_fx_rates(get_setting("fx_rate_mode", "market"))
     result.pop("_raw", None)
     return jsonify(result)
 
@@ -436,7 +434,7 @@ def api_export_xlsx():
     price_result = get_prices_for_tickers(tickers)
     prices = price_result.get("prices", {})
 
-    fx_result = get_fx_rates()
+    fx_result = get_fx_rates(get_setting("fx_rate_mode", "market"))
     fx = fx_result.get("fx", {})
 
     def to_huf(val, currency):
@@ -503,7 +501,18 @@ def api_export_xlsx():
     if fx.get("USD/HUF") and total_huf:
         ws.append(["Összesen USD", round(total_huf / fx["USD/HUF"], 2)])
     ws.append(["Árfolyam nélküli tételek", sum(1 for i in portfolio if i["ticker"] not in prices)])
+    market_fx = fx_result.get("market") or {}
+    official_fx = fx_result.get("official") or {}
+    ws.append(["Hasznalt devizaarfolyam mod", fx_result.get("mode", "")])
+    ws.append(["Kert devizaarfolyam mod", fx_result.get("requested_mode", fx_result.get("mode", ""))])
+    ws.append(["EUR/HUF hasznalt arfolyam", fx.get("EUR/HUF")])
+    ws.append(["USD/HUF hasznalt arfolyam", fx.get("USD/HUF")])
+    ws.append(["MNB EUR/HUF", official_fx.get("EUR/HUF")])
+    ws.append(["MNB USD/HUF", official_fx.get("USD/HUF")])
+    ws.append(["Piaci EUR/HUF", market_fx.get("EUR/HUF")])
+    ws.append(["Piaci USD/HUF", market_fx.get("USD/HUF")])
     ws.append(["Forrás (deviza)", fx_result.get("source", "")])
+    ws.append(["Devizaarfolyam idopontja", fx_result.get("timestamp", "")])
 
     col_widths = [22, 12, 12, 8, 16, 8, 18, 18, 18, 14, 14, 20, 10, 14, 18]
     for i, w in enumerate(col_widths, 1):

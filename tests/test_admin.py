@@ -20,6 +20,8 @@ import app as flask_app
 @pytest.fixture(autouse=True)
 def tmp_db(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test_admin.db")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
     monkeypatch.setattr(db_module, "DB_PATH", db_path)
     monkeypatch.setattr(db_module, "_PORTFOLIO_JSON", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(db_module, "_SYMBOLS_JSON", str(tmp_path / "symbols.json"))
@@ -299,6 +301,7 @@ def test_all_defaults_are_present():
     assert "enable_yahoo" in DEFAULTS
     assert "enable_stooq" in DEFAULTS
     assert "enable_mnb" in DEFAULTS
+    assert "fx_rate_mode" in DEFAULTS
     assert "excel_export_enabled" in DEFAULTS
     assert "maintenance_mode" in DEFAULTS
     assert "price_cache_minutes" in DEFAULTS

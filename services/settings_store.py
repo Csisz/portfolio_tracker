@@ -19,6 +19,7 @@ DEFAULTS: dict[str, tuple[str, str, str]] = {
     "price_cache_minutes":    ("15",               "int",     "Részvényárfolyam cache ideje (perc)"),
     "search_cache_minutes":   ("60",               "int",     "Keresési cache ideje (perc)"),
     "fx_cache_hours":         ("24",               "int",     "Devizaárfolyam cache ideje (óra)"),
+    "fx_rate_mode":           ("market",           "choice",  "Devizaárfolyam mód: market = aktuális piaci árfolyam portfólióértékeléshez; official = MNB hivatalos napi árfolyam; auto = piaci, ha elérhető, különben MNB"),
     "enable_yahoo":           ("true",             "bool",    "Yahoo Finance provider engedélyezve"),
     "enable_stooq":           ("true",             "bool",    "Stooq fallback engedélyezve"),
     "enable_mnb":             ("true",             "bool",    "MNB devizaárfolyam engedélyezve"),

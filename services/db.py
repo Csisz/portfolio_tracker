@@ -145,6 +145,17 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     ip_address  TEXT,
     created_at  TEXT
 );
+
+CREATE TABLE IF NOT EXISTS fx_rate_cache (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode       TEXT NOT NULL,
+    pair       TEXT NOT NULL,
+    rate       REAL NOT NULL,
+    source     TEXT,
+    fetched_at TEXT,
+    rate_date  TEXT,
+    UNIQUE(mode, pair)
+);
 """
 
 _SCHEMA_POSTGRES = """
@@ -208,6 +219,17 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     ip_address  TEXT,
     created_at  TEXT
 );
+
+CREATE TABLE IF NOT EXISTS fx_rate_cache (
+    id         SERIAL PRIMARY KEY,
+    mode       TEXT NOT NULL,
+    pair       TEXT NOT NULL,
+    rate       REAL NOT NULL,
+    source     TEXT,
+    fetched_at TEXT,
+    rate_date  TEXT,
+    UNIQUE(mode, pair)
+);
 """
 
 
@@ -225,6 +247,18 @@ def _apply_migrations(conn):
         "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
         "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE users ADD COLUMN updated_at TEXT",
+        """
+        CREATE TABLE IF NOT EXISTS fx_rate_cache (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            mode       TEXT NOT NULL,
+            pair       TEXT NOT NULL,
+            rate       REAL NOT NULL,
+            source     TEXT,
+            fetched_at TEXT,
+            rate_date  TEXT,
+            UNIQUE(mode, pair)
+        )
+        """,
     ]
     for sql in migrations:
         try:
@@ -698,6 +732,88 @@ def _parse_symbols(rows) -> list[dict]:
             d["query_aliases"] = []
         result.append(d)
     return result
+
+
+# ---------------------------------------------------------------------------
+# FX cache
+# ---------------------------------------------------------------------------
+
+def save_fx_rate_cache(mode: str, fx: dict, source: str = "", fetched_at: str = None, rate_date: str = None):
+    """Elmenti a legutobbi FX arfolyamokat paronkent."""
+    if not fx:
+        return
+    now = fetched_at or _now()
+    mode = (mode or "market").strip().lower()
+    rows = []
+    for pair, rate in fx.items():
+        if "/" not in pair or rate is None:
+            continue
+        try:
+            rows.append({
+                "m": mode,
+                "p": str(pair),
+                "r": float(rate),
+                "s": source,
+                "f": now,
+                "d": rate_date,
+            })
+        except (TypeError, ValueError):
+            continue
+    if not rows:
+        return
+
+    with _conn() as conn:
+        for params in rows:
+            if _is_postgres():
+                conn.execute(text("""
+                    INSERT INTO fx_rate_cache (mode, pair, rate, source, fetched_at, rate_date)
+                    VALUES (:m, :p, :r, :s, :f, :d)
+                    ON CONFLICT (mode, pair) DO UPDATE SET
+                        rate=EXCLUDED.rate,
+                        source=EXCLUDED.source,
+                        fetched_at=EXCLUDED.fetched_at,
+                        rate_date=EXCLUDED.rate_date
+                """), params)
+            else:
+                conn.execute(text("""
+                    INSERT INTO fx_rate_cache (mode, pair, rate, source, fetched_at, rate_date)
+                    VALUES (:m, :p, :r, :s, :f, :d)
+                    ON CONFLICT(mode, pair) DO UPDATE SET
+                        rate=excluded.rate,
+                        source=excluded.source,
+                        fetched_at=excluded.fetched_at,
+                        rate_date=excluded.rate_date
+                """), params)
+
+
+def get_latest_fx_rate_cache(mode: str) -> Optional[dict]:
+    mode = (mode or "market").strip().lower()
+    with _conn() as conn:
+        rows = conn.execute(text("""
+            SELECT * FROM fx_rate_cache
+            WHERE mode = :m
+            ORDER BY fetched_at DESC
+        """), {"m": mode}).fetchall()
+    if not rows:
+        return None
+
+    fx = {}
+    source = None
+    fetched_at = None
+    rate_date = None
+    for row in rows:
+        d = _row(row)
+        fx[d["pair"]] = d["rate"]
+        source = source or d.get("source")
+        fetched_at = fetched_at or d.get("fetched_at")
+        rate_date = rate_date or d.get("rate_date")
+    return {
+        "mode": mode,
+        "fx": fx,
+        "source": source,
+        "fetched_at": fetched_at,
+        "rate_date": rate_date,
+    }
 
 
 # ---------------------------------------------------------------------------
