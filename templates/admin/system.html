@@ -1,0 +1,93 @@
+{% extends "admin/base.html" %}
+{% block title %}Rendszerállapot{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Rendszerállapot</h1>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">Alkalmazás</div>
+  <div class="status-row"><span class="status-key">App verzió</span><span class="status-val">{{ status.app_version }}</span></div>
+  <div class="status-row"><span class="status-key">Python verzió</span><span class="status-val">{{ status.python_version }}</span></div>
+  <div class="status-row"><span class="status-key">Környezet</span><span class="status-val">{{ status.app_env }}</span></div>
+  <div class="status-row">
+    <span class="status-key">Adatbázis típusa</span>
+    <span class="status-val"><span class="badge badge-ok">{{ status.db_type }}</span></span>
+  </div>
+  <div class="status-row">
+    <span class="status-key">Adatbázis kapcsolat</span>
+    <span class="status-val">
+      <span class="badge {{ 'badge-ok' if status.db_ok else 'badge-error' }}">
+        {{ 'OK' if status.db_ok else 'HIBA' }}
+      </span>
+    </span>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">Környezeti változók</div>
+  <div class="status-row">
+    <span class="status-key">SECRET_KEY</span>
+    <span class="status-val">
+      <span class="badge {{ 'badge-ok' if status.has_secret_key else 'badge-warn' }}">
+        {{ 'beállítva' if status.has_secret_key else 'NINCS – ideiglenes kulcs aktív!' }}
+      </span>
+    </span>
+  </div>
+  <div class="status-row">
+    <span class="status-key">DATABASE_URL</span>
+    <span class="status-val">
+      <span class="badge {{ 'badge-ok' if status.has_database_url else 'badge-warn' }}">
+        {{ 'beállítva' if status.has_database_url else 'nincs (SQLite helyi)' }}
+      </span>
+    </span>
+  </div>
+  <div class="status-row">
+    <span class="status-key">PORTFOLIO_PASSWORD</span>
+    <span class="status-val">
+      <span class="badge {{ 'badge-ok' if status.has_portfolio_password else 'badge-warn' }}">
+        {{ 'beállítva' if status.has_portfolio_password else 'nincs (default)' }}
+      </span>
+    </span>
+  </div>
+  {% if status.default_admin_danger %}
+  <div class="status-row">
+    <span class="status-key">⚠️ Biztonsági kockázat</span>
+    <span class="status-val">
+      <span class="badge badge-error">admin/admin jelszó aktív!</span>
+    </span>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title">Adatforrások</div>
+  <div class="status-row">
+    <span class="status-key">Yahoo Finance provider</span>
+    <span class="status-val"><span class="badge {{ 'badge-ok' if status.enable_yahoo else 'badge-inactive' }}">{{ 'engedélyezve' if status.enable_yahoo else 'letiltva' }}</span></span>
+  </div>
+  <div class="status-row">
+    <span class="status-key">Stooq fallback</span>
+    <span class="status-val"><span class="badge {{ 'badge-ok' if status.enable_stooq else 'badge-inactive' }}">{{ 'engedélyezve' if status.enable_stooq else 'letiltva' }}</span></span>
+  </div>
+  <div class="status-row">
+    <span class="status-key">MNB devizaárfolyam</span>
+    <span class="status-val"><span class="badge {{ 'badge-ok' if status.enable_mnb else 'badge-inactive' }}">{{ 'engedélyezve' if status.enable_mnb else 'letiltva' }}</span></span>
+  </div>
+  <div class="status-row">
+    <span class="status-key">Utolsó devizaárfolyam frissítés</span>
+    <span class="status-val text-muted">{{ status.fx_last_update or '–' }}</span>
+  </div>
+  <div class="status-row">
+    <span class="status-key">Karbantartási mód</span>
+    <span class="status-val"><span class="badge {{ 'badge-warn' if status.maintenance_mode else 'badge-ok' }}">{{ 'BE' if status.maintenance_mode else 'KI' }}</span></span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Adatbázis statisztika</div>
+  <div class="status-row"><span class="status-key">Felhasználók száma</span><span class="status-val">{{ status.users }}</span></div>
+  <div class="status-row"><span class="status-key">Portfólió tételek</span><span class="status-val">{{ status.portfolio_items }}</span></div>
+  <div class="status-row"><span class="status-key">Ticker cache bejegyzések</span><span class="status-val">{{ status.symbols }}</span></div>
+  <div class="status-row"><span class="status-key">Audit log bejegyzések</span><span class="status-val">{{ status.audit_logs }}</span></div>
+</div>
+{% endblock %}

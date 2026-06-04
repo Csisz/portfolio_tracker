@@ -1,0 +1,37 @@
+{% extends "admin/base.html" %}
+{% block title %}Audit napló{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Audit napló <span>(utolsó 100 bejegyzés)</span></h1>
+
+<div class="card">
+  {% if logs %}
+  <table>
+    <thead>
+      <tr>
+        <th style="width:140px">Időpont</th>
+        <th>Felhasználó</th>
+        <th>Esemény</th>
+        <th>Részletek</th>
+        <th style="width:120px">IP cím</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td class="text-muted">{{ (log.created_at or '')[:16] }}</td>
+        <td>{{ log.username or '–' }}</td>
+        <td>
+          <code style="font-size:12px;color:#1a1a2e">{{ log.action }}</code>
+        </td>
+        <td class="text-muted">{{ log.details or '–' }}</td>
+        <td class="text-muted">{{ log.ip_address or '–' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="text-muted">Nincsenek napló bejegyzések.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local databases and private portfolio data
+*.db
+portfolio_tracker.db
+portfolio.json
+portfolio.imported.json
+portfolio.broken.json
+symbols_cache.json
+symbols_cache.imported.json
+fx_cache.json
+
+# Logs / exports
+*.log
+*.xlsx
+exports/
+
+# Local/editor files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Vercel local
+.vercel/

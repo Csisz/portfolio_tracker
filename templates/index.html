@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portfólió Követő – Zoltán</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f0; color: #222; font-size: 15px; }
+
+    .update-strip { background: #1a1a2e; border-top: 1px solid #2d2d50; padding: 3px 24px; text-align: right; }
+    .update-strip #update-info { font-size: 11px; color: #6b7280; }
+
+    .container { max-width: 1020px; margin: 0 auto; padding: 24px 16px; }
+
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
+    .card { background: #fff; border-radius: 10px; padding: 18px 20px; border: 1px solid #e8e8e0; }
+    .card-label { font-size: 12px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .card-value { font-size: 26px; font-weight: 600; color: #1a1a2e; }
+    .card-sub { font-size: 12px; color: #aaa; margin-top: 3px; }
+
+    /* ===== DEVIZAÁRFOLYAM KÁRTYA ===== */
+    .fx-bar { background: #fff; border: 1px solid #e8e8e0; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
+    .fx-card-title { font-size: 11px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+    .fx-main-rates { display: flex; gap: 36px; align-items: flex-start; flex-wrap: wrap; }
+    .fx-rate-item { display: flex; flex-direction: column; }
+    .fx-rate-label { font-size: 12px; color: #888; margin-bottom: 2px; }
+    .fx-rate-value { font-size: 22px; font-weight: 600; color: #1a1a2e; line-height: 1.2; }
+    .fx-rate-sub { font-size: 11px; color: #bbb; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .fx-meta { margin-top: 11px; font-size: 11px; color: #aaa; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; border-top: 1px solid #f0f0e8; padding-top: 9px; }
+    .fx-meta-sep { color: #ddd; }
+    .fx-meta-warn { color: #d97706; }
+    /* (régi fx-bar elemek eltávolítva – csak a kártyás forma maradt) */
+
+    /* ===== KERESŐ PANEL ===== */
+    .search-panel { background: #fff; border: 1px solid #e8e8e0; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .search-panel-title { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 14px; }
+
+    .search-input-wrap { position: relative; }
+    .search-input-wrap input {
+      width: 100%; padding: 12px 16px 12px 42px;
+      border: 2px solid #e0e0d8; border-radius: 9px;
+      font-size: 15px; color: #222; outline: none; transition: border-color 0.15s;
+    }
+    .search-input-wrap input:focus { border-color: #1a1a2e; }
+    .search-icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); font-size: 18px; color: #aaa; pointer-events: none; }
+    .search-spinner { position: absolute; right: 13px; top: 50%; transform: translateY(-50%); display: none; }
+    .search-spinner.active { display: block; }
+
+    .search-results-box { margin-top: 8px; background: #fff; border: 1px solid #e0e0d8; border-radius: 9px; overflow: hidden; display: none; }
+    .search-results-box.visible { display: block; }
+    .sr-item { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; cursor: pointer; border-bottom: 1px solid #f0f0e8; transition: background 0.1s; }
+    .sr-item:last-child { border-bottom: none; }
+    .sr-item:hover { background: #f5f5ee; }
+    .sr-left { display: flex; flex-direction: column; gap: 2px; }
+    .sr-ticker { font-weight: 700; font-size: 14px; color: #1a1a2e; }
+    .sr-name { font-size: 13px; color: #555; }
+    .sr-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+    .sr-exch { font-size: 11px; color: #aaa; }
+    .sr-source { font-size: 10px; padding: 1px 5px; border-radius: 4px; font-weight: 500; }
+    .src-local { background: #dcfce7; color: #166534; }
+    .src-cache { background: #dbeafe; color: #1e40af; }
+    .src-yahoo { background: #ede9fe; color: #5b21b6; }
+    .src-suffix { background: #fef9c3; color: #854d0e; }
+    .sr-none { padding: 14px 16px; color: #888; font-size: 13px; }
+    .sr-warn { padding: 10px 16px; background: #fffbeb; color: #92400e; font-size: 12px; border-bottom: 1px solid #fde68a; }
+
+    /* Kiválasztott részvény + darabszám */
+    .selected-stock-box { margin-top: 12px; padding: 14px 16px; background: #f0f5ff; border: 1.5px solid #c7d8f8; border-radius: 9px; display: none; }
+    .selected-stock-box.visible { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .sel-info { flex: 1; min-width: 160px; }
+    .sel-ticker { font-weight: 700; font-size: 15px; color: #1a1a2e; }
+    .sel-name { font-size: 12px; color: #666; margin-top: 2px; }
+    .sel-exch { font-size: 11px; color: #999; }
+    .sel-qty-wrap { display: flex; align-items: center; gap: 8px; }
+    .sel-qty-wrap label { font-size: 13px; color: #555; white-space: nowrap; }
+    .qty-input { width: 90px; padding: 8px 10px; border: 1.5px solid #c7d8f8; border-radius: 7px; font-size: 15px; font-weight: 600; color: #1a1a2e; text-align: center; outline: none; }
+    .qty-input:focus { border-color: #1a1a2e; }
+    .btn-add-stock { padding: 9px 22px; background: #1a1a2e; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s; white-space: nowrap; }
+    .btn-add-stock:hover { background: #2d2d50; }
+    .btn-cancel-sel { padding: 9px 14px; background: transparent; color: #888; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; cursor: pointer; }
+    .btn-cancel-sel:hover { background: #f0f0e8; }
+
+    /* ===== KÉZI HOZZÁADÁS ===== */
+    .manual-section { margin-top: 14px; border-top: 1px solid #e8e8e0; padding-top: 14px; }
+    .manual-toggle { background: none; border: none; font-size: 13px; color: #6b7280; cursor: pointer; padding: 4px 0; display: flex; align-items: center; gap: 5px; }
+    .manual-toggle:hover { color: #1a1a2e; }
+    .manual-form { display: none; margin-top: 12px; }
+    .manual-form.visible { display: block; }
+    .manual-grid { display: grid; grid-template-columns: 1fr 1fr 80px; gap: 10px; align-items: end; }
+    .manual-grid-5 { display: grid; grid-template-columns: 1fr 1fr 100px 100px 90px; gap: 10px; align-items: end; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label { font-size: 12px; color: #666; }
+    .form-input { padding: 8px 10px; border: 1.5px solid #ddd; border-radius: 7px; font-size: 14px; color: #222; outline: none; }
+    .form-input:focus { border-color: #1a1a2e; }
+    .form-input::placeholder { color: #bbb; }
+    .btn-manual-add { padding: 9px 18px; background: #374151; color: #fff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; white-space: nowrap; align-self: flex-end; }
+    .btn-manual-add:hover { background: #1f2937; }
+    .manual-hint { font-size: 11px; color: #9ca3af; margin-top: 6px; }
+    .manual-status { margin-top: 8px; font-size: 13px; padding: 8px 12px; border-radius: 7px; display: none; }
+    .manual-status.ok { background: #dcfce7; color: #166534; display: block; }
+    .manual-status.warn { background: #fffbeb; color: #92400e; display: block; }
+    .manual-status.err { background: #fee2e2; color: #991b1b; display: block; }
+
+    /* ===== KORÁBBAN HASZNÁLT ===== */
+    .recent-section { margin-bottom: 16px; }
+    .recent-title { font-size: 12px; color: #888; font-weight: 500; margin-bottom: 8px; }
+    .recent-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .recent-chip { padding: 4px 12px; background: #f0f0eb; border: 1px solid #ddd; border-radius: 20px; font-size: 12px; color: #444; cursor: pointer; transition: background 0.1s; }
+    .recent-chip:hover { background: #e0e0d8; border-color: #bbb; }
+    .recent-chip strong { color: #1a1a2e; }
+
+    /* ===== PORTFÓLIÓ TÁBLÁZAT ===== */
+    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .section-title { font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
+    .btn-refresh { padding: 7px 16px; border-radius: 7px; border: 1px solid #ccc; background: #1a1a2e; color: #fff; cursor: pointer; font-size: 13px; transition: background 0.15s; display: flex; align-items: center; gap: 6px; }
+    .btn-refresh:hover { background: #2d2d50; }
+    .btn-refresh:disabled { opacity: 0.6; cursor: default; }
+    .btn-excel { padding: 7px 14px; border-radius: 7px; border: 1px solid #d1d5db; background: #f9fafb; color: #374151; cursor: pointer; font-size: 13px; transition: all 0.15s; display: flex; align-items: center; gap: 5px; text-decoration: none; }
+    .btn-excel:hover { background: #e5e7eb; }
+    .section-btns { display: flex; align-items: center; gap: 8px; }
+    .src-badge { font-size: 10px; color: #9ca3af; display: block; margin-top: 2px; }
+    /* Portfólió összetétel */
+    .composition-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 20px; }
+    .comp-card { background: #fff; border: 1px solid #e8e8e0; border-radius: 9px; padding: 12px 16px; }
+    .comp-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+    .comp-value { font-size: 17px; font-weight: 600; color: #1a1a2e; }
+    .comp-sub { font-size: 11px; color: #aaa; margin-top: 2px; }
+
+    .table-wrap { background: #fff; border-radius: 10px; border: 1px solid #e8e8e0; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { font-size: 12px; color: #888; font-weight: 500; padding: 10px 14px; text-align: left; border-bottom: 1px solid #eee; background: #fafaf7; }
+    thead th.num { text-align: right; }
+    tbody td { padding: 12px 14px; border-bottom: 1px solid #f0f0e8; font-size: 14px; vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #fafaf7; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .ticker-badge { font-weight: 700; font-size: 13px; color: #1a1a2e; }
+    .stock-name { font-size: 12px; color: #999; margin-top: 1px; }
+    .currency-tag { display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-weight: 500; }
+    .tag-usd { background: #dbeafe; color: #1e40af; }
+    .tag-huf { background: #dcfce7; color: #166534; }
+    .tag-eur { background: #ede9fe; color: #5b21b6; }
+    .tag-gbp { background: #fef9c3; color: #854d0e; }
+    .tag-other { background: #f3f4f6; color: #374151; }
+
+    .qty-cell { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+    .qty-display { cursor: pointer; padding: 3px 7px; border-radius: 5px; border: 1px solid transparent; }
+    .qty-display:hover { border-color: #ddd; background: #f5f5ee; }
+    .qty-edit { width: 70px; padding: 3px 7px; border: 1.5px solid #1a1a2e; border-radius: 5px; font-size: 14px; text-align: right; outline: none; display: none; }
+
+    .btn-del { background: none; border: none; cursor: pointer; color: #ddd; font-size: 20px; padding: 2px 6px; border-radius: 4px; line-height: 1; }
+    .btn-del:hover { color: #dc2626; background: #fee2e2; }
+
+    .loading-cell { color: #bbb; font-style: italic; }
+    .error-cell { color: #dc2626; font-size: 12px; }
+    .warn-cell { color: #d97706; font-size: 12px; }
+
+    .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .info-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 13px 18px; font-size: 13px; color: #78350f; line-height: 1.7; margin-top: 16px; }
+    .error-banner { background: #fee2e2; border: 1px solid #fca5a5; border-radius: 10px; padding: 11px 18px; font-size: 13px; color: #991b1b; margin-bottom: 12px; display: none; }
+    .error-banner.visible { display: block; }
+
+    @media (max-width: 680px) {
+      .summary-grid { grid-template-columns: 1fr 1fr; }
+      thead th:nth-child(4), tbody td:nth-child(4) { display: none; }
+      .selected-stock-box.visible { flex-direction: column; align-items: flex-start; }
+      .manual-grid-5 { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+{% include "partials/navbar.html" %}
+<div class="update-strip"><span id="update-info">–</span></div>
+
+<div class="container">
+
+  <!-- Összesítők -->
+  <div class="summary-grid">
+    <div class="card">
+      <div class="card-label">Összesen (HUF)</div>
+      <div class="card-value" id="total-huf">–</div>
+      <div class="card-sub">magyar forint</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Összesen (USD)</div>
+      <div class="card-value" id="total-usd">–</div>
+      <div class="card-sub">dollár</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Összesen (EUR)</div>
+      <div class="card-value" id="total-eur">–</div>
+      <div class="card-sub">euró</div>
+    </div>
+  </div>
+
+  <!-- Valutasáv -->
+  <div class="fx-bar" id="fx-bar">
+    <span class="loading-cell">Valutaárfolyamok betöltése...</span>
+  </div>
+
+  <!-- Portfólió összetétel -->
+  <div class="composition-row" id="composition-row" style="display:none"></div>
+
+  <!-- Hibaüzenet sáv -->
+  <div class="error-banner" id="error-banner"></div>
+
+  <!-- ===== KERESŐ PANEL ===== -->
+  <div class="search-panel">
+    <div class="search-panel-title">🔍 Részvény keresése és hozzáadása</div>
+
+    <!-- Korábban használt -->
+    <div class="recent-section" id="recent-section" style="display:none">
+      <div class="recent-title">Korábban hozzáadott részvények:</div>
+      <div class="recent-chips" id="recent-chips"></div>
+    </div>
+
+    <div class="search-input-wrap" style="margin-bottom:0">
+      <span class="search-icon">🔎</span>
+      <input type="text" id="search-input"
+             placeholder="Cég neve vagy ticker (pl. OTP, Apple, Tesla, BMW, MOL...)"
+             oninput="onSearchInput(this.value)"
+             autocomplete="off">
+      <div class="search-spinner" id="search-spinner">
+        <div style="width:16px;height:16px;border:2px solid #ccc;border-top-color:#1a1a2e;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+      </div>
+    </div>
+
+    <!-- Találatok -->
+    <div class="search-results-box" id="search-results-box"></div>
+
+    <!-- Kiválasztott részvény + darabszám -->
+    <div class="selected-stock-box" id="selected-stock-box">
+      <div class="sel-info">
+        <div class="sel-ticker" id="sel-ticker"></div>
+        <div class="sel-name" id="sel-name"></div>
+        <div class="sel-exch" id="sel-exch"></div>
+      </div>
+      <div class="sel-qty-wrap">
+        <label>Darabszám:</label>
+        <input type="number" class="qty-input" id="sel-qty" value="1" min="0.001" step="any">
+      </div>
+      <button class="btn-add-stock" onclick="confirmAdd()">➕ Hozzáadás</button>
+      <button class="btn-cancel-sel" onclick="cancelSelection()">Mégsem</button>
+    </div>
+
+    <!-- Kézi hozzáadás -->
+    <div class="manual-section">
+      <button class="manual-toggle" onclick="toggleManual()" id="manual-toggle-btn">
+        <span id="manual-toggle-arrow">▶</span> Nem találod? Add meg kézzel a tickert.
+      </button>
+      <div class="manual-form" id="manual-form">
+        <div class="manual-grid-5">
+          <div class="form-group">
+            <label>Ticker *</label>
+            <input type="text" class="form-input" id="m-ticker" placeholder="pl. OTP.BD, AAPL, BMW.DE" oninput="this.value=this.value.toUpperCase()">
+          </div>
+          <div class="form-group">
+            <label>Cég neve</label>
+            <input type="text" class="form-input" id="m-name" placeholder="pl. OTP Bank">
+          </div>
+          <div class="form-group">
+            <label>Deviza</label>
+            <input type="text" class="form-input" id="m-currency" placeholder="USD, HUF, EUR..." oninput="this.value=this.value.toUpperCase()" maxlength="5">
+          </div>
+          <div class="form-group">
+            <label>Tőzsde</label>
+            <input type="text" class="form-input" id="m-exchange" placeholder="NASDAQ, BUD...">
+          </div>
+          <div class="form-group">
+            <label>Darabszám *</label>
+            <input type="number" class="form-input" id="m-qty" value="1" min="0.001" step="any">
+          </div>
+        </div>
+        <div class="manual-hint">
+          Tőzsdei végződések: magyar részvényeknél <strong>.BD</strong>, némeknél <strong>.DE</strong>, londoniaknál <strong>.L</strong>, bécsieknél <strong>.VI</strong>
+        </div>
+        <button class="btn-manual-add" onclick="submitManual()" style="margin-top:10px">Hozzáadás / Mentés</button>
+        <div class="manual-status" id="manual-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Portfólió táblázat -->
+  <div class="section-header">
+    <span class="section-title">Részvényeim</span>
+    <div class="section-btns">
+      <a href="/api/export/xlsx" class="btn-excel" title="Excel letöltése">⬇ Excel</a>
+      <button class="btn-refresh" onclick="refreshAll()" id="refresh-btn">
+        ↻ Frissítés
+      </button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Részvény</th>
+          <th class="num">Darab <span style="font-size:10px;color:#bbb">(kattints)</span></th>
+          <th class="num">Árfolyam / Forrás</th>
+          <th class="num">Érték (saját deviza)</th>
+          <th class="num">Érték (HUF)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="stocks-tbody">
+        <tr><td colspan="6" class="loading-cell" style="padding:20px;text-align:center">Betöltés...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="info-box">
+    <strong>📌 Tipp:</strong>
+    Magyar részvények: „OTP", „MOL", „Richter", „Telekom". Külföldi: „Apple", „Tesla", „BMW".<br>
+    Ha a kereső nem talál, próbálj <strong>kézi ticker megadást</strong> (pl. <code>OTP.BD</code>, <code>BMW.DE</code>, <code>SHEL.L</code>).<br>
+    <span id="source-info" style="color:#92400e">Részvényárfolyamok: Yahoo Finance / Stooq. Devizaárfolyamok: MNB.</span>
+  </div>
+
+</div>
+
+<script>
+  let portfolio = {{ portfolio | tojson }};
+  let prices = {};
+  let fx = {};
+  let fxSource = '';
+  let fxTimestamp = '';
+  let searchTimeout = null;
+  let selectedStock = null;
+
+  // ========== 401 kezelés (session lejárt) ==========
+  async function apiFetch(url, options = {}) {
+    const r = await fetch(url, options);
+    if (r.status === 401) { window.location.href = '/login'; return null; }
+    return r;
+  }
+
+  // ========== INDÍTÁS ==========
+  window.onload = () => {
+    renderTable();
+    loadRecent();
+    refreshAll();
+  };
+
+  // ========== DEVIZAÁRFOLYAM ==========
+  async function loadFx() {
+    try {
+      const r = await apiFetch('/api/fx');
+      if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : ''));
+      const d = await r.json();
+      fx = d.fx || {};
+      fxSource = d.source || '';
+      fxTimestamp = d.timestamp || '';
+      if (d.errors && d.errors.length) {
+        const needsFx = portfolio.some(s => {
+          const c = (s.currency || '').toUpperCase();
+          return c && c !== 'HUF';
+        });
+        if (needsFx) {
+          if (d.source === 'cache') {
+            appendBanner('Élő MNB árfolyam nem elérhető – az utolsó ismert árfolyamot használjuk.');
+          } else if (d.source === 'none') {
+            appendBanner('Devizaárfolyam nem elérhető, ezért a nem forintos részvények HUF összesítése nem pontos.');
+          }
+        }
+      }
+    } catch(e) {
+      appendBanner('Devizaárfolyam most nem tölthető be.');
+    }
+  }
+
+  function renderFxBar() {
+    const bar = document.getElementById('fx-bar');
+    const eur = fx['EUR/HUF'];
+    const usd = fx['USD/HUF'];
+    const hufEur = fx['HUF/EUR'];
+    const hufUsd = fx['HUF/USD'];
+
+    const fmt2 = v => v != null ? v.toLocaleString('hu-HU', {minimumFractionDigits:2, maximumFractionDigits:2}) : '–';
+    const fmt6 = v => v != null ? v.toLocaleString('hu-HU', {minimumFractionDigits:6, maximumFractionDigits:6}) : '–';
+
+    const title = '<div class="fx-card-title">Devizaárfolyamok</div>';
+
+    // Nincs adat
+    if (!eur && !usd) {
+      const allHuf = portfolio.length === 0 || portfolio.every(s => {
+        const p = prices[s.ticker];
+        const c = ((p && p.currency) || s.currency || '').toUpperCase();
+        return !c || c === 'HUF';
+      });
+      const msg = (allHuf && portfolio.length > 0)
+        ? 'Devizaárfolyam nem elérhető, de a HUF összesítés pontos (a portfólió csak HUF elemeket tartalmaz).'
+        : 'Devizaárfolyam jelenleg nem tölthető be.';
+      bar.innerHTML = `${title}
+        <div class="fx-main-rates">
+          <div class="fx-rate-item">
+            <span class="fx-rate-label">EUR/HUF</span>
+            <span class="fx-rate-value" style="font-size:16px;color:#bbb">nem elérhető</span>
+          </div>
+          <div class="fx-rate-item">
+            <span class="fx-rate-label">USD/HUF</span>
+            <span class="fx-rate-value" style="font-size:16px;color:#bbb">nem elérhető</span>
+          </div>
+        </div>
+        <div class="fx-meta"><span class="fx-meta-warn">${msg}</span></div>`;
+      return;
+    }
+
+    // Van adat
+    let ratesHtml = '<div class="fx-main-rates">';
+    if (eur) {
+      ratesHtml += `<div class="fx-rate-item">
+        <span class="fx-rate-label">1 EUR</span>
+        <span class="fx-rate-value">${fmt2(eur)} Ft</span>
+        ${hufEur ? `<span class="fx-rate-sub">1 Ft = ${fmt6(hufEur)} EUR</span>` : ''}
+      </div>`;
+    }
+    if (usd) {
+      ratesHtml += `<div class="fx-rate-item">
+        <span class="fx-rate-label">1 USD</span>
+        <span class="fx-rate-value">${fmt2(usd)} Ft</span>
+        ${hufUsd ? `<span class="fx-rate-sub">1 Ft = ${fmt6(hufUsd)} USD</span>` : ''}
+      </div>`;
+    }
+    ratesHtml += '</div>';
+
+    const srcLabel = fxSource === 'MNB'       ? 'MNB'
+                   : fxSource === 'MNB/cache' ? 'MNB (cache)'
+                   : fxSource === 'cache'     ? 'utolsó ismert MNB árfolyam'
+                   : fxSource || 'MNB';
+    const srcWarn = fxSource === 'cache';
+
+    let tsText = '';
+    if (fxTimestamp) {
+      tsText = fxTimestamp.replace('T', ' ').substring(0, 16).replace(/-/g, '.').replace(' ', '. ');
+    }
+
+    bar.innerHTML = `${title}${ratesHtml}
+      <div class="fx-meta">
+        <span class="${srcWarn ? 'fx-meta-warn' : ''}">Forrás: ${srcLabel}</span>
+        ${tsText ? `<span class="fx-meta-sep">·</span><span>Frissítve: ${tsText}</span>` : ''}
+      </div>`;
+  }
+
+  // ========== RÉSZVÉNYÁRFOLYAM ==========
+  async function loadPrices() {
+    const tickers = portfolio.map(s => s.ticker);
+    if (!tickers.length) return;
+    try {
+      const r = await apiFetch('/api/prices', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({tickers})
+      });
+      if (!r) return;  // 401 → átirányítás folyamatban
+      if (!r.ok) {
+        appendBanner('Az árfolyamlekérés megszakadt (HTTP ' + r.status + '). Próbáld újra frissíteni.');
+        return;
+      }
+      const d = await r.json();
+      // Csak sikeres részeredményeket frissítünk – a meglévő prices megmarad,
+      // ha az adott ticker benne volt, frissül, ha nem, nem nullázzuk ki.
+      const newPrices = d.prices || {};
+      Object.assign(prices, newPrices);
+      if (d.errors && d.errors.length) {
+        const onlyMissing = d.errors.filter(e => {
+          const t = typeof e === 'string' ? e : e.ticker;
+          return !newPrices[t];
+        });
+        if (onlyMissing.length) {
+          const msgs = onlyMissing.map(e =>
+            typeof e === 'string' ? e : (e.ticker + ': ' + e.message)
+          );
+          appendBanner(msgs.join(' | '));
+        }
+      }
+    } catch(e) {
+      // Hálózati hiba (pl. connection reset reloader miatt) – meglévő adatokat tartjuk
+      appendBanner('Az árfolyamlekérés megszakadt. Próbáld újra frissíteni.');
+    }
+  }
+
+  // ========== REFRESH ==========
+  async function refreshAll() {
+    const btn = document.getElementById('refresh-btn');
+    btn.innerHTML = '<span class="spinner"></span> Frissítés...';
+    btn.disabled = true;
+    clearBanner();
+    try {
+      await Promise.all([loadFx(), loadPrices()]);
+      renderFxBar();
+      renderTable();
+      calcTotals();
+      calcComposition();
+      updateSourceInfo();
+      const now = new Date();
+      document.getElementById('update-info').textContent =
+        'Frissítve: ' + now.toLocaleTimeString('hu-HU', {hour:'2-digit', minute:'2-digit'});
+    } finally {
+      btn.innerHTML = '↻ Frissítés';
+      btn.disabled = false;
+    }
+  }
+
+  function updateSourceInfo() {
+    const srcSet = new Set();
+    Object.values(prices).forEach(p => {
+      if (!p || !p.source) return;
+      const s = p.source;
+      if (s === 'stale') { srcSet.add('cache (utolsó ismert)'); return; }
+      // "Yahoo Finance/cache" → "Yahoo Finance", "Stooq" → "Stooq"
+      srcSet.add(s.split('/')[0].trim());
+    });
+    const pricesSrc = srcSet.size ? [...srcSet].join(' / ') : null;
+    const fxLabel = fxSource === 'MNB/cache' ? 'MNB (cache)'
+                  : fxSource === 'cache'      ? 'cache (utolsó ismert)'
+                  : fxSource === 'none'       ? 'nem elérhető'
+                  : fxSource || 'MNB';
+
+    const el = document.getElementById('source-info');
+    if (!el) return;
+    const parts = [];
+    if (pricesSrc) parts.push('Részvényárfolyamok: ' + pricesSrc);
+    parts.push('Devizaárfolyamok: ' + fxLabel);
+    el.textContent = parts.join('. ') + '.';
+  }
+
+  // ========== HIBAÜZENET SÁV ==========
+  let bannerMessages = [];
+  function showBanner(msg) {
+    bannerMessages = [msg];
+    _renderBanner();
+  }
+  function appendBanner(msg) {
+    if (msg && !bannerMessages.includes(msg)) bannerMessages.push(msg);
+    _renderBanner();
+  }
+  function clearBanner() {
+    bannerMessages = [];
+    _renderBanner();
+  }
+  function _renderBanner() {
+    const el = document.getElementById('error-banner');
+    if (!bannerMessages.length) { el.classList.remove('visible'); el.innerHTML = ''; return; }
+    el.innerHTML = bannerMessages.map(m => `⚠️ ${m}`).join('<br>');
+    el.classList.add('visible');
+  }
+
+  // ========== TÁBLÁZAT ==========
+  function renderTable() {
+    const tbody = document.getElementById('stocks-tbody');
+    if (!portfolio.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#bbb;padding:24px">Még nincs részvény. Keress egyet fent!</td></tr>';
+      return;
+    }
+    tbody.innerHTML = portfolio.map((s, i) => {
+      const p = prices[s.ticker];
+      const price = p ? p.price : null;
+      const currency = (p ? p.currency : null) || s.currency || null;
+      const val = (price != null) ? price * s.qty : null;
+
+      let valHUF = null;
+      if (val != null && currency) {
+        const c = currency.toUpperCase();
+        if (c === 'HUF') valHUF = val;
+        else if (fx[c + '/HUF']) valHUF = val * fx[c + '/HUF'];
+        // GBp pence kezelés
+        else if ((c === 'GBP' || c === 'GBX') && fx['GBP/HUF']) valHUF = val * fx['GBP/HUF'] / 100;
+      }
+
+      const tagCls = currency ? ('tag-' + currency.toLowerCase()) : 'tag-other';
+      const tag = currency ? `<span class="currency-tag ${tagCls}">${currency}</span>` : '';
+
+      const stale = p && p.stale === true;
+      const srcLabel = p ? (p.source || '').replace('Yahoo Finance', 'Yahoo').replace('/cache', ' (cache)').replace('/részleges cache', '') : '';
+      let priceStr;
+      if (p && price != null) {
+        const priceFormatted = price.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 4}) + ' ' + (currency || '');
+        const staleMark = stale ? ' <span class="warn-cell">(régi)</span>' : '';
+        priceStr = priceFormatted + staleMark
+          + (srcLabel ? `<span class="src-badge">${srcLabel}</span>` : '');
+      } else if (p === undefined) {
+        priceStr = '<span class="loading-cell">–</span>';
+      } else {
+        priceStr = '<span class="error-cell">Árfolyam most nem elérhető</span>';
+      }
+
+      const valStr = val != null ? Math.round(val).toLocaleString('hu-HU') + ' ' + (currency || '') : '–';
+      let hufStr;
+      if (valHUF != null) {
+        hufStr = Math.round(valHUF).toLocaleString('hu-HU') + ' Ft';
+      } else if (val != null) {
+        hufStr = '<span class="warn-cell">? (devizaárfolyam hiányzik)</span>';
+      } else {
+        hufStr = '–';
+      }
+
+      const itemId = s.id || null;
+      return `<tr>
+        <td>
+          <div class="ticker-badge">${s.ticker}${tag}</div>
+          <div class="stock-name">${s.name || ''}</div>
+        </td>
+        <td class="num">
+          <div class="qty-cell">
+            <span class="qty-display" onclick="startEditQty(${i})" title="Kattints a módosításhoz">${s.qty}</span>
+            <input class="qty-edit" id="qty-edit-${i}" type="number" value="${s.qty}" min="0.001" step="any"
+                   onblur="saveQty(${i})" onkeydown="qtyKeydown(event,${i})">
+          </div>
+        </td>
+        <td class="num">${priceStr}</td>
+        <td class="num">${valStr}</td>
+        <td class="num">${hufStr}</td>
+        <td><button class="btn-del" onclick="removeStock(${i},${itemId})" title="Törlés">×</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function calcTotals() {
+    let totalHUF = 0, hasData = false;
+    portfolio.forEach(s => {
+      const p = prices[s.ticker];
+      if (!p || p.price == null) return;
+      const val = p.price * s.qty;
+      const c = (p.currency || s.currency || '').toUpperCase();
+      let huf = 0;
+      if (c === 'HUF') huf = val;
+      else if (fx[c + '/HUF']) huf = val * fx[c + '/HUF'];
+      else if ((c === 'GBP' || c === 'GBX') && fx['GBP/HUF']) huf = val * fx['GBP/HUF'] / 100;
+      if (huf) { totalHUF += huf; hasData = true; }
+    });
+    if (!hasData) return;
+    const totalUSD = fx['USD/HUF'] ? totalHUF / fx['USD/HUF'] : null;
+    const totalEUR = fx['EUR/HUF'] ? totalHUF / fx['EUR/HUF'] : null;
+    document.getElementById('total-huf').textContent = Math.round(totalHUF).toLocaleString('hu-HU') + ' Ft';
+    document.getElementById('total-usd').textContent = totalUSD ? '$' + Math.round(totalUSD).toLocaleString('hu-HU') : '–';
+    document.getElementById('total-eur').textContent = totalEUR ? '€' + Math.round(totalEUR).toLocaleString('hu-HU') : '–';
+  }
+
+  // ========== QTY SZERKESZTÉS ==========
+  function startEditQty(i) {
+    const row = document.querySelector(`#stocks-tbody tr:nth-child(${i+1})`);
+    if (!row) return;
+    const disp = row.querySelector('.qty-display');
+    const edit = document.getElementById('qty-edit-' + i);
+    if (disp) disp.style.display = 'none';
+    if (edit) { edit.style.display = 'inline-block'; edit.focus(); edit.select(); }
+  }
+  function qtyKeydown(e, i) {
+    if (e.key === 'Enter') e.target.blur();
+    if (e.key === 'Escape') cancelEditQty(i);
+  }
+  function cancelEditQty(i) {
+    const row = document.querySelector(`#stocks-tbody tr:nth-child(${i+1})`);
+    if (!row) return;
+    const edit = document.getElementById('qty-edit-' + i);
+    const disp = row.querySelector('.qty-display');
+    if (edit) edit.style.display = 'none';
+    if (disp) disp.style.display = 'inline-block';
+  }
+  async function saveQty(i) {
+    const edit = document.getElementById('qty-edit-' + i);
+    const newQty = parseFloat(edit.value);
+    if (!newQty || newQty <= 0) { cancelEditQty(i); return; }
+    const item = portfolio[i];
+    portfolio[i].qty = newQty;
+    // Ha van ID, PUT-tal frissítsük
+    if (item.id) {
+      await apiFetch(`/api/portfolio/${item.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({qty: newQty})
+      });
+    } else {
+      await saveToServer();
+    }
+    renderTable();
+    calcTotals();
+  }
+
+  // ========== MENTÉS / TÖRLÉS ==========
+  async function saveToServer() {
+    try {
+      await apiFetch('/api/portfolio', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(portfolio)
+      });
+    } catch(e) {
+      appendBanner('Mentési hiba – ellenőrizd a szerver állapotát.');
+    }
+  }
+  async function removeStock(i, itemId) {
+    if (!confirm('Törlöd: ' + portfolio[i].name + ' (' + portfolio[i].ticker + ')?')) return;
+    if (itemId) {
+      await apiFetch(`/api/portfolio/${itemId}`, {method: 'DELETE'});
+    } else {
+      portfolio.splice(i, 1);
+      await saveToServer();
+    }
+    // Újratöltés a szerverről
+    const r = await apiFetch('/api/portfolio');
+    if (r) portfolio = await r.json();
+    renderTable();
+    calcTotals();
+    calcComposition();
+  }
+
+  // ========== PORTFÓLIÓ ÖSSZETÉTEL ==========
+  function calcComposition() {
+    const row = document.getElementById('composition-row');
+    if (!portfolio.length) { row.style.display = 'none'; return; }
+    const groups = {};
+    let noPrice = 0;
+    portfolio.forEach(s => {
+      const p = prices[s.ticker];
+      if (!p || p.price == null) { noPrice++; return; }
+      const c = (p.currency || s.currency || 'UNKNOWN').toUpperCase();
+      const val = p.price * s.qty;
+      if (!groups[c]) groups[c] = {value: 0, huf: 0, count: 0};
+      groups[c].value += val;
+      groups[c].count++;
+      let huf = 0;
+      if (c === 'HUF') huf = val;
+      else if (fx[c + '/HUF']) huf = val * fx[c + '/HUF'];
+      else if ((c === 'GBP' || c === 'GBX') && fx['GBP/HUF']) huf = val * fx['GBP/HUF'] / 100;
+      groups[c].huf += huf;
+    });
+    let cards = '';
+    const priority = ['HUF','USD','EUR','GBP'];
+    const sorted = [...priority.filter(c => groups[c]), ...Object.keys(groups).filter(c => !priority.includes(c))];
+    sorted.forEach(c => {
+      const g = groups[c];
+      const valFmt = Math.round(g.value).toLocaleString('hu-HU') + ' ' + c;
+      const hufFmt = g.huf ? Math.round(g.huf).toLocaleString('hu-HU') + ' Ft' : (c === 'HUF' ? '' : '(nincs devizaárfolyam)');
+      cards += `<div class="comp-card">
+        <div class="comp-label">${c} részvények (${g.count} db)</div>
+        <div class="comp-value">${valFmt}</div>
+        ${c !== 'HUF' && hufFmt ? `<div class="comp-sub">${hufFmt}</div>` : ''}
+      </div>`;
+    });
+    if (noPrice > 0) {
+      cards += `<div class="comp-card">
+        <div class="comp-label">Árfolyam nélkül</div>
+        <div class="comp-value" style="font-size:17px;color:#bbb">${noPrice} db</div>
+      </div>`;
+    }
+    row.innerHTML = cards;
+    row.style.display = 'grid';
+  }
+
+  // ========== KERESŐ ==========
+  function onSearchInput(val) {
+    clearTimeout(searchTimeout);
+    const box = document.getElementById('search-results-box');
+    const spinner = document.getElementById('search-spinner');
+    if (val.trim().length < 2) {
+      box.classList.remove('visible'); box.innerHTML = '';
+      spinner.classList.remove('active');
+      return;
+    }
+    spinner.classList.add('active');
+    searchTimeout = setTimeout(() => doSearch(val.trim()), 420);
+  }
+
+  async function doSearch(query) {
+    const box = document.getElementById('search-results-box');
+    const spinner = document.getElementById('search-spinner');
+    try {
+      const r = await apiFetch('/api/search/' + encodeURIComponent(query));
+      const d = await r.json();
+      spinner.classList.remove('active');
+
+      const results = d.results || [];
+      const errors = d.errors || [];
+      let html = '';
+
+      if (errors.length) {
+        html += `<div class="sr-warn">⚠️ ${errors.join(' ')}</div>`;
+      }
+
+      if (!results.length) {
+        html += `<div class="sr-none">
+          Nincs találat. Próbáld a kézi hozzáadással, vagy a tőzsdei végződéssel:<br>
+          <small style="color:#aaa">pl. OTP.BD, BMW.DE, SHEL.L, NVDA, MSFT</small>
+        </div>`;
+      } else {
+        html += results.map(item => {
+          const srcLabel = {'local':'helyi lista','cache':'korábban mentett','yahoo':'Yahoo','suffix_hint':'javaslat'}[item.source] || item.source;
+          const srcCls = {'local':'src-local','cache':'src-cache','yahoo':'src-yahoo','suffix_hint':'src-suffix'}[item.source] || 'src-local';
+          const safeName = (item.name || '').replace(/'/g, "\\'");
+          const safeExch = (item.exchange || '').replace(/'/g, "\\'");
+          const safeCurr = (item.currency || '').replace(/'/g, "\\'");
+          return `<div class="sr-item" onclick="selectStock('${item.ticker}','${safeName}','${safeExch}','${item.type || ''}','${safeCurr}')">
+            <div class="sr-left">
+              <span class="sr-ticker">${item.ticker}</span>
+              <span class="sr-name">${item.name || '–'}</span>
+            </div>
+            <div class="sr-right">
+              <span class="sr-exch">${item.exchange || ''} ${item.currency ? '· '+item.currency : ''}</span>
+              <span class="sr-source ${srcCls}">${srcLabel}</span>
+            </div>
+          </div>`;
+        }).join('');
+      }
+      box.innerHTML = html;
+      box.classList.add('visible');
+    } catch(e) {
+      spinner.classList.remove('active');
+      box.innerHTML = '<div class="sr-warn">Keresési hiba. Próbáld a kézi hozzáadást.</div>';
+      box.classList.add('visible');
+    }
+  }
+
+  function selectStock(ticker, name, exchange, type, currency) {
+    selectedStock = { ticker, name, exchange, type, currency };
+    document.getElementById('search-results-box').classList.remove('visible');
+    document.getElementById('search-input').value = name + ' (' + ticker + ')';
+    document.getElementById('sel-ticker').textContent = ticker;
+    document.getElementById('sel-name').textContent = name;
+    document.getElementById('sel-exch').textContent = (exchange ? 'Tőzsde: ' + exchange : '') + (currency ? ' · ' + currency : '');
+    document.getElementById('sel-qty').value = 1;
+    document.getElementById('selected-stock-box').classList.add('visible');
+    setTimeout(() => { const q = document.getElementById('sel-qty'); q.focus(); q.select(); }, 80);
+  }
+
+  function cancelSelection() {
+    selectedStock = null;
+    document.getElementById('selected-stock-box').classList.remove('visible');
+    document.getElementById('search-input').value = '';
+    document.getElementById('search-results-box').classList.remove('visible');
+    document.getElementById('search-results-box').innerHTML = '';
+  }
+
+  async function confirmAdd() {
+    if (!selectedStock) return;
+    const qty = parseFloat(document.getElementById('sel-qty').value);
+    if (!qty || qty <= 0) { alert('Kérlek adj meg érvényes darabszámot!'); return; }
+    // Kézi hozzáadás route-on keresztül (DB-be menti)
+    const r = await apiFetch('/api/add_manual', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        ticker: selectedStock.ticker,
+        name: selectedStock.name || selectedStock.ticker,
+        qty,
+        currency: selectedStock.currency || '',
+        exchange: selectedStock.exchange || ''
+      })
+    });
+    if (!r) return;
+    if (!r.ok) { alert('Hiba a hozzáadásnál.'); return; }
+    cancelSelection();
+    // Friss portfólió a szerverről
+    const pr = await apiFetch('/api/portfolio');
+    if (pr) portfolio = await pr.json();
+    renderTable();
+    await loadPrices();
+    renderTable();
+    calcTotals();
+    calcComposition();
+    loadRecent();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.getElementById('selected-stock-box').classList.contains('visible')) {
+      if (document.activeElement === document.getElementById('sel-qty')) confirmAdd();
+    }
+  });
+
+  // ========== KÉZI HOZZÁADÁS ==========
+  function toggleManual() {
+    const form = document.getElementById('manual-form');
+    const arrow = document.getElementById('manual-toggle-arrow');
+    const open = form.classList.toggle('visible');
+    arrow.textContent = open ? '▼' : '▶';
+    if (open) document.getElementById('m-ticker').focus();
+  }
+
+  async function submitManual() {
+    const ticker = document.getElementById('m-ticker').value.trim().toUpperCase();
+    const name   = document.getElementById('m-name').value.trim();
+    const currency = document.getElementById('m-currency').value.trim().toUpperCase();
+    const exchange = document.getElementById('m-exchange').value.trim();
+    const qty    = parseFloat(document.getElementById('m-qty').value);
+    const status = document.getElementById('manual-status');
+
+    if (!ticker) { setManualStatus('err', 'A Ticker mező kötelező.'); return; }
+    if (!qty || qty <= 0) { setManualStatus('err', 'Érvénytelen darabszám.'); return; }
+
+    setManualStatus('warn', 'Feldolgozás...');
+    try {
+      const r = await apiFetch('/api/add_manual', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ticker, name, currency, exchange, qty})
+      });
+      if (!r) return;
+      const d = await r.json();
+      if (!d.ok) { setManualStatus('err', d.error || 'Hiba.'); return; }
+      const msg = d.warning
+        ? `✓ ${d.ticker} hozzáadva. ⚠️ ${d.warning}`
+        : `✓ ${d.ticker} (${d.name}) sikeresen hozzáadva.`;
+      setManualStatus(d.warning ? 'warn' : 'ok', msg);
+      // Portfólió friss betöltés
+      const resp = await apiFetch('/api/portfolio');
+      if (resp) portfolio = await resp.json();
+      renderTable();
+      await loadPrices();
+      renderTable();
+      calcTotals();
+      calcComposition();
+      loadRecent();
+      // Mező ürítés
+      document.getElementById('m-ticker').value = '';
+      document.getElementById('m-name').value = '';
+      document.getElementById('m-currency').value = '';
+      document.getElementById('m-exchange').value = '';
+      document.getElementById('m-qty').value = '1';
+    } catch(e) {
+      setManualStatus('err', 'Hálózati hiba – ellenőrizd a szerver állapotát.');
+    }
+  }
+
+  function setManualStatus(type, msg) {
+    const el = document.getElementById('manual-status');
+    el.className = 'manual-status ' + type;
+    el.textContent = msg;
+  }
+
+  // ========== KORÁBBAN HASZNÁLT ==========
+  async function loadRecent() {
+    try {
+      const r = await apiFetch('/api/symbols/recent');
+      const d = await r.json();
+      const symbols = d.symbols || [];
+      const section = document.getElementById('recent-section');
+      const chips = document.getElementById('recent-chips');
+      if (!symbols.length) { section.style.display = 'none'; return; }
+      section.style.display = 'block';
+      chips.innerHTML = symbols.map(s =>
+        `<span class="recent-chip" onclick="selectStock('${s.ticker}','${(s.name||s.ticker).replace(/'/g,"\\'")}','${(s.exchange||'').replace(/'/g,"\\'")}','EQUITY','${(s.currency||'').replace(/'/g,"\\'")}')">
+          <strong>${s.ticker}</strong> ${s.name && s.name !== s.ticker ? '· '+s.name : ''}
+        </span>`
+      ).join('');
+    } catch(e) {}
+  }
+</script>
+</body>
+</html>

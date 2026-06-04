@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% block title %}Admin áttekintő{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Admin áttekintő</h1>
+
+<div class="stat-grid" style="margin-bottom:20px">
+  <div class="stat-card">
+    <div class="stat-num">{{ stats.users }}</div>
+    <div class="stat-label">Felhasználó</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ stats.portfolio_items }}</div>
+    <div class="stat-label">Portfólió tétel</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ stats.symbols }}</div>
+    <div class="stat-label">Ticker cache</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ stats.audit_logs }}</div>
+    <div class="stat-label">Audit log bejegyzés</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Gyorslinkek</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <a href="{{ url_for('admin_users') }}" class="btn btn-secondary">👥 Felhasználók kezelése</a>
+    <a href="{{ url_for('admin_user_new') }}" class="btn btn-secondary">➕ Új felhasználó</a>
+    <a href="{{ url_for('admin_settings') }}" class="btn btn-secondary">⚙️ Beállítások</a>
+    <a href="{{ url_for('admin_system') }}" class="btn btn-secondary">🔧 Rendszerállapot</a>
+    <a href="{{ url_for('admin_logs') }}" class="btn btn-secondary">📋 Audit napló</a>
+  </div>
+</div>
+{% endblock %}

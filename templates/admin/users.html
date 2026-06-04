@@ -1,0 +1,52 @@
+{% extends "admin/base.html" %}
+{% block title %}Felhasználók{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+  <h1 class="page-title mt-0">Felhasználók</h1>
+  <a href="{{ url_for('admin_user_new') }}" class="btn btn-primary">➕ Új felhasználó</a>
+</div>
+
+<div class="card">
+  {% if users %}
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Felhasználónév</th>
+        <th>Szerepkör</th>
+        <th>Aktív</th>
+        <th>Létrehozva</th>
+        <th>Utolsó belépés</th>
+        <th>Műveletek</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td class="text-muted">{{ u.id }}</td>
+        <td><strong>{{ u.username }}</strong></td>
+        <td>
+          <span class="badge {{ 'badge-admin' if u.role == 'admin' else 'badge-user' }}">
+            {{ u.role }}
+          </span>
+        </td>
+        <td>
+          <span class="badge {{ 'badge-active' if u.is_active else 'badge-inactive' }}">
+            {{ 'Aktív' if u.is_active else 'Inaktív' }}
+          </span>
+        </td>
+        <td class="text-muted">{{ (u.created_at or '')[:16] }}</td>
+        <td class="text-muted">{{ (u.last_login_at or '–')[:16] }}</td>
+        <td>
+          <a href="{{ url_for('admin_user_edit', uid=u.id) }}" class="btn btn-secondary btn-sm">Szerkesztés</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="text-muted">Nincsenek felhasználók.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,79 @@
+{#
+  Közös navigációs fejléc – Portfólió Követő
+  Admin menüpontok csak is_admin=True esetén látszódnak.
+  Aktív link: request.endpoint alapján.
+#}
+<style>
+  .top-nav {
+    background: #1a1a2e; color: #fff;
+    padding: 11px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 6px;
+  }
+  .top-nav-brand {
+    font-size: 16px; font-weight: 600;
+    text-decoration: none; color: #fff; white-space: nowrap;
+  }
+  .top-nav-links {
+    display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+  }
+  .top-nav-links a {
+    color: #9ca3af; text-decoration: none; font-size: 13px;
+    padding: 5px 10px; border-radius: 6px; transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .top-nav-links a:hover,
+  .top-nav-links a.nav-active { background: #374151; color: #fff; }
+  .top-nav-sep { color: #374151; margin: 0 2px; font-size: 13px; }
+  .top-nav-user { font-size: 12px; color: #9ca3af; padding: 5px 8px; white-space: nowrap; }
+  .top-nav-logout { color: #f87171 !important; }
+  .top-nav-logout:hover { background: #7f1d1d !important; color: #fff !important; }
+  @media (max-width: 680px) {
+    .top-nav { padding: 10px 14px; }
+    .top-nav-links a { padding: 4px 7px; font-size: 12px; }
+  }
+</style>
+<nav class="top-nav">
+  <a href="{{ url_for('index') }}" class="top-nav-brand">📈 Portfólió Követő</a>
+
+  <div class="top-nav-links">
+    {# Portfólió link #}
+    <a href="{{ url_for('index') }}"
+       class="{{ 'nav-active' if request.endpoint == 'index' else '' }}">
+      Portfólió
+    </a>
+
+    {% if is_admin %}
+      <span class="top-nav-sep">|</span>
+
+      <a href="{{ url_for('admin_index') }}"
+         class="{{ 'nav-active' if request.endpoint == 'admin_index' else '' }}">
+        Admin
+      </a>
+
+      <a href="{{ url_for('admin_users') }}"
+         class="{{ 'nav-active' if request.endpoint in ('admin_users', 'admin_user_new', 'admin_user_edit') else '' }}">
+        Felhasználók
+      </a>
+
+      <a href="{{ url_for('admin_settings') }}"
+         class="{{ 'nav-active' if request.endpoint == 'admin_settings' else '' }}">
+        Beállítások
+      </a>
+
+      <a href="{{ url_for('admin_system') }}"
+         class="{{ 'nav-active' if request.endpoint == 'admin_system' else '' }}">
+        Rendszer
+      </a>
+
+      <a href="{{ url_for('admin_logs') }}"
+         class="{{ 'nav-active' if request.endpoint == 'admin_logs' else '' }}">
+        Napló
+      </a>
+    {% endif %}
+
+    <span class="top-nav-sep">|</span>
+    <span class="top-nav-user">{{ current_username }}</span>
+    <a href="{{ url_for('logout') }}" class="top-nav-logout">Kilépés</a>
+  </div>
+</nav>

@@ -1,0 +1,54 @@
+{% extends "admin/base.html" %}
+{% block title %}Beállítások{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Beállítások</h1>
+
+<div class="card">
+  <form method="post">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:220px">Kulcs</th>
+          <th>Leírás</th>
+          <th style="width:180px">Érték</th>
+          <th style="width:80px">Típus</th>
+          <th style="width:130px">Módosítva</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in settings %}
+        <tr>
+          <td><code style="font-size:12px;color:#1a1a2e">{{ s.key }}</code></td>
+          <td class="text-muted">{{ s.description or '–' }}</td>
+          <td>
+            {% if s.value_type == 'bool' %}
+              <select name="setting_{{ s.key }}" class="form-select" style="padding:5px 8px;font-size:13px">
+                <option value="true" {{ 'selected' if s.value == 'true' else '' }}>true</option>
+                <option value="false" {{ 'selected' if s.value != 'true' else '' }}>false</option>
+              </select>
+            {% else %}
+              <input type="text" name="setting_{{ s.key }}"
+                     value="{{ s.value }}" class="form-input" style="padding:5px 8px;font-size:13px">
+            {% endif %}
+          </td>
+          <td class="text-muted">{{ s.value_type }}</td>
+          <td class="text-muted">{{ (s.updated_at or '–')[:16] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="form-actions" style="margin-top:20px">
+      <button type="submit" class="btn btn-primary">Beállítások mentése</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="background:#fffbeb;border-color:#fde68a">
+  <p style="font-size:13px;color:#78350f">
+    <strong>⚠️ Karbantartási mód</strong> bekapcsolása esetén csak admin felhasználók tudnak belépni.<br>
+    <strong>enable_yahoo / enable_stooq</strong> kikapcsolása megakadályozza az adott árfolyamforrás lekérését.<br>
+    <strong>excel_export_enabled</strong> kikapcsolásával letiltható az Excel export minden felhasználónál.
+  </p>
+</div>
+{% endblock %}

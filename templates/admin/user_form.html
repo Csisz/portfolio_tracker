@@ -1,0 +1,108 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ 'Felhasználó szerkesztése' if edit_user else 'Új felhasználó' }}{% endblock %}
+
+{% block content %}
+<h1 class="page-title">
+  {{ 'Felhasználó szerkesztése: ' + edit_user.username if edit_user else 'Új felhasználó létrehozása' }}
+</h1>
+
+{% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if edit_user %}
+  {# Szerkesztési nézet: két különálló form #}
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title">Adatok módosítása</div>
+    <form method="post">
+      <input type="hidden" name="action" value="update">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Felhasználónév</label>
+          <input type="text" class="form-input" value="{{ edit_user.username }}" disabled>
+        </div>
+        <div class="form-group">
+          <label>Szerepkör</label>
+          <select name="role" class="form-select">
+            <option value="user" {{ 'selected' if edit_user.role == 'user' else '' }}>user</option>
+            <option value="admin" {{ 'selected' if edit_user.role == 'admin' else '' }}>admin</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Aktív</label>
+        <select name="is_active" class="form-select" style="max-width:200px">
+          <option value="1" {{ 'selected' if edit_user.is_active else '' }}>Igen (aktív)</option>
+          <option value="0" {{ 'selected' if not edit_user.is_active else '' }}>Nem (inaktív)</option>
+        </select>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Mentés</button>
+        <a href="{{ url_for('admin_users') }}" class="btn btn-secondary">Vissza</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Jelszó módosítása</div>
+    <form method="post">
+      <input type="hidden" name="action" value="password">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Új jelszó</label>
+          <input type="password" name="password" class="form-input" placeholder="Legalább 6 karakter" required>
+        </div>
+        <div class="form-group">
+          <label>Jelszó megerősítése</label>
+          <input type="password" name="password2" class="form-input" required>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-danger btn-sm">Jelszó módosítása</button>
+      </div>
+    </form>
+  </div>
+
+{% else %}
+  {# Új felhasználó form #}
+  <div class="card">
+    <form method="post">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Felhasználónév *</label>
+          <input type="text" name="username" class="form-input" required autofocus>
+        </div>
+        <div class="form-group">
+          <label>Szerepkör</label>
+          <select name="role" class="form-select">
+            <option value="user">user</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Jelszó *</label>
+          <input type="password" name="password" class="form-input" placeholder="Legalább 6 karakter" required>
+        </div>
+        <div class="form-group">
+          <label>Jelszó megerősítése *</label>
+          <input type="password" name="password2" class="form-input" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Aktív</label>
+        <select name="is_active" class="form-select" style="max-width:200px">
+          <option value="1">Igen (aktív)</option>
+          <option value="0">Nem (inaktív)</option>
+        </select>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Létrehozás</button>
+        <a href="{{ url_for('admin_users') }}" class="btn btn-secondary">Vissza</a>
+      </div>
+    </form>
+  </div>
+{% endif %}
+{% endblock %}
