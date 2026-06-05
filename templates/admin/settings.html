@@ -2,10 +2,35 @@
 {% block title %}Beállítások{% endblock %}
 
 {% block content %}
+<style>
+  .settings-inline-alert { display: none; padding: 11px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+  .settings-inline-alert.visible { display: block; }
+  .settings-inline-alert.ok { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+  .settings-inline-alert.warn { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+  .settings-inline-alert.err { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  .settings-modal-backdrop { position: fixed; inset: 0; background: rgba(17, 24, 39, 0.48); display: none; align-items: center; justify-content: center; padding: 18px; z-index: 50; }
+  .settings-modal-backdrop.visible { display: flex; }
+  .settings-modal { width: min(560px, 100%); background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 24px 60px rgba(17, 24, 39, 0.22); padding: 20px; }
+  .settings-modal-title { font-size: 18px; font-weight: 700; color: #1a1a2e; margin-bottom: 8px; }
+  .settings-modal-text { font-size: 13px; color: #555; margin-bottom: 14px; }
+  .settings-change-list { list-style: none; margin: 0; padding: 0; border: 1px solid #f0f0e8; border-radius: 8px; overflow: hidden; }
+  .settings-change-list li { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #f0f0e8; color: #374151; line-height: 1.45; }
+  .settings-change-list li:last-child { border-bottom: none; }
+  .settings-change-list strong { color: #1a1a2e; }
+  .settings-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .settings-modal-actions .btn:disabled { opacity: 0.65; cursor: default; }
+  @media (max-width: 560px) {
+    .settings-modal { padding: 16px; }
+    .settings-modal-actions { flex-direction: column-reverse; }
+    .settings-modal-actions .btn { width: 100%; text-align: center; }
+  }
+</style>
+
+<div id="settings-save-status" class="settings-inline-alert" role="status"></div>
 <h1 class="page-title">Beállítások</h1>
 
 <div class="card">
-  <form method="post">
+  <form method="post" id="settings-form">
     {% set auto_refresh = settings_map.get('auto_refresh_seconds', {'value': '300'}) %}
     {% set alerts = settings_map.get('alerts_enabled', {'value': 'false'}) %}
 
@@ -80,7 +105,7 @@
       </tbody>
     </table>
     <div class="form-actions" style="margin-top:20px">
-      <button type="submit" class="btn btn-primary">Beállítások mentése</button>
+      <button type="submit" class="btn btn-primary" id="settings-save-btn">Beállítások mentése</button>
     </div>
   </form>
 </div>
@@ -92,4 +117,183 @@
     <strong>excel_export_enabled</strong> kikapcsolásával letiltható az Excel export minden felhasználónál.
   </p>
 </div>
+
+<div class="settings-modal-backdrop" id="settings-confirm-modal" aria-hidden="true">
+  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-confirm-title">
+    <div class="settings-modal-title" id="settings-confirm-title">Beállítások módosításának megerősítése</div>
+    <div class="settings-modal-text">Az alábbi beállításokat szeretnéd módosítani:</div>
+    <ul class="settings-change-list" id="settings-change-list"></ul>
+    <div class="settings-modal-actions">
+      <button type="button" class="btn btn-secondary" id="settings-cancel-btn">Mégsem</button>
+      <button type="button" class="btn btn-primary" id="settings-confirm-btn">Véglegesítés</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const SETTINGS_LABELS = {
+    app_name: 'Alkalmazás neve',
+    default_currency: 'Alapértelmezett deviza',
+    price_cache_minutes: 'Részvényárfolyam cache ideje',
+    auto_refresh_seconds: 'Automatikus frissítés gyakorisága',
+    alerts_enabled: 'Email riasztások engedélyezése',
+    alert_cooldown_minutes: 'Riasztási újraküldési várakozás',
+    search_cache_minutes: 'Keresési cache ideje',
+    fx_cache_hours: 'Devizaárfolyam cache ideje',
+    fx_rate_mode: 'Devizaárfolyam mód',
+    enable_yahoo: 'Yahoo Finance provider',
+    enable_stooq: 'Stooq fallback',
+    enable_mnb: 'MNB devizaárfolyam',
+    allow_registration: 'Regisztráció',
+    excel_export_enabled: 'Excel export',
+    maintenance_mode: 'Karbantartási mód',
+  };
+
+  const AUTO_REFRESH_LABELS = {
+    '0': 'kikapcsolva',
+    '60': '1 perc',
+    '300': '5 perc',
+    '900': '15 perc',
+    '1800': '30 perc',
+    '3600': '60 perc',
+  };
+
+  const FX_MODE_LABELS = {
+    market: 'piaci árfolyam',
+    official: 'MNB hivatalos napi árfolyam',
+    auto: 'automatikus',
+  };
+
+  let originalSettings = {};
+  let pendingSettingsChanges = [];
+  let settingsSaveInProgress = false;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('settings-form');
+    const modal = document.getElementById('settings-confirm-modal');
+    const cancelBtn = document.getElementById('settings-cancel-btn');
+    const confirmBtn = document.getElementById('settings-confirm-btn');
+
+    originalSettings = collectSettings(form);
+
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      if (settingsSaveInProgress) return;
+      hideSettingsStatus();
+      pendingSettingsChanges = getSettingsChanges(form);
+      if (!pendingSettingsChanges.length) {
+        showSettingsStatus('warn', 'Nincs mentendő változás.');
+        return;
+      }
+      renderSettingsChanges(pendingSettingsChanges);
+      openSettingsModal();
+    });
+
+    cancelBtn.addEventListener('click', closeSettingsModal);
+    modal.addEventListener('click', event => {
+      if (event.target === modal && !settingsSaveInProgress) closeSettingsModal();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !settingsSaveInProgress) closeSettingsModal();
+    });
+    confirmBtn.addEventListener('click', () => finalizeSettingsSave(form));
+  });
+
+  function collectSettings(form) {
+    const values = {};
+    form.querySelectorAll('[name^="setting_"]').forEach(field => {
+      const key = field.name.replace(/^setting_/, '');
+      values[key] = field.type === 'checkbox'
+        ? (field.checked ? 'true' : 'false')
+        : String(field.value || '').trim();
+    });
+    return values;
+  }
+
+  function getSettingsChanges(form) {
+    const current = collectSettings(form);
+    return Object.keys(current)
+      .filter(key => current[key] !== originalSettings[key])
+      .map(key => ({
+        key,
+        label: SETTINGS_LABELS[key] || key,
+        before: friendlySettingValue(key, originalSettings[key]),
+        after: friendlySettingValue(key, current[key]),
+      }));
+  }
+
+  function friendlySettingValue(key, value) {
+    const v = String(value ?? '');
+    if (v === 'true') return 'bekapcsolva';
+    if (v === 'false') return 'kikapcsolva';
+    if (key === 'auto_refresh_seconds') return AUTO_REFRESH_LABELS[v] || (v + ' másodperc');
+    if (key === 'alert_cooldown_minutes') return v + ' perc';
+    if (key === 'price_cache_minutes' || key === 'search_cache_minutes') return v + ' perc';
+    if (key === 'fx_cache_hours') return v + ' óra';
+    if (key === 'fx_rate_mode') return FX_MODE_LABELS[v] || v;
+    return v || 'üres';
+  }
+
+  function renderSettingsChanges(changes) {
+    const list = document.getElementById('settings-change-list');
+    list.innerHTML = changes.map(change =>
+      `<li><strong>${escapeSettingsHtml(change.label)}:</strong> ${escapeSettingsHtml(change.before)} → ${escapeSettingsHtml(change.after)}</li>`
+    ).join('');
+  }
+
+  function openSettingsModal() {
+    const modal = document.getElementById('settings-confirm-modal');
+    modal.classList.add('visible');
+    modal.setAttribute('aria-hidden', 'false');
+    document.getElementById('settings-confirm-btn').focus();
+  }
+
+  function closeSettingsModal() {
+    const modal = document.getElementById('settings-confirm-modal');
+    modal.classList.remove('visible');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+
+  async function finalizeSettingsSave(form) {
+    if (settingsSaveInProgress) return;
+    const confirmBtn = document.getElementById('settings-confirm-btn');
+    settingsSaveInProgress = true;
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Mentés...';
+    try {
+      const response = await fetch(form.action || window.location.href, {
+        method: 'POST',
+        body: new FormData(form),
+        headers: {'X-Requested-With': 'fetch'},
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      originalSettings = collectSettings(form);
+      pendingSettingsChanges = [];
+      closeSettingsModal();
+      showSettingsStatus('ok', 'A beállítások sikeresen mentve.');
+    } catch (error) {
+      showSettingsStatus('err', 'A beállítások mentése nem sikerült.');
+    } finally {
+      settingsSaveInProgress = false;
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Véglegesítés';
+    }
+  }
+
+  function showSettingsStatus(type, message) {
+    const el = document.getElementById('settings-save-status');
+    el.className = 'settings-inline-alert visible ' + type;
+    el.textContent = message;
+  }
+
+  function hideSettingsStatus() {
+    const el = document.getElementById('settings-save-status');
+    el.className = 'settings-inline-alert';
+    el.textContent = '';
+  }
+
+  function escapeSettingsHtml(value) {
+    return String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  }
+</script>
 {% endblock %}

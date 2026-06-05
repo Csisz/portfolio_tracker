@@ -320,6 +320,52 @@ def test_admin_settings_page(admin_client):
     assert "settings" in r.data.decode("utf-8", errors="replace").lower() or r.status_code == 200
 
 
+def test_admin_settings_page_has_confirm_modal(admin_client):
+    init_default_settings()
+    r = admin_client.get("/admin/settings")
+    html = r.data.decode("utf-8")
+    assert 'id="settings-form"' in html
+    assert 'id="settings-confirm-modal"' in html
+    assert 'id="settings-change-list"' in html
+    assert "Beállítások módosításának megerősítése" in html
+    assert "Mégsem" in html
+    assert "Véglegesítés" in html
+
+
+def test_admin_settings_confirm_js_prevents_immediate_submit(admin_client):
+    init_default_settings()
+    r = admin_client.get("/admin/settings")
+    html = r.data.decode("utf-8")
+    assert "event.preventDefault()" in html
+    assert "Nincs mentendő változás." in html
+    assert "openSettingsModal()" in html
+    assert "finalizeSettingsSave(form)" in html
+    assert "new FormData(form)" in html
+
+
+def test_admin_settings_confirm_js_has_friendly_values(admin_client):
+    init_default_settings()
+    r = admin_client.get("/admin/settings")
+    html = r.data.decode("utf-8")
+    assert "'0': 'kikapcsolva'" in html
+    assert "'300': '5 perc'" in html
+    assert "'900': '15 perc'" in html
+    assert "return 'bekapcsolva'" in html
+    assert "return 'kikapcsolva'" in html
+    assert "alert_cooldown_minutes') return v + ' perc'" in html
+
+
+def test_admin_settings_confirm_js_guards_double_save(admin_client):
+    init_default_settings()
+    r = admin_client.get("/admin/settings")
+    html = r.data.decode("utf-8")
+    assert "settingsSaveInProgress" in html
+    assert "confirmBtn.disabled = true" in html
+    assert "confirmBtn.disabled = false" in html
+    assert "originalSettings = collectSettings(form)" in html
+    assert "A beállítások sikeresen mentve." in html
+
+
 def test_admin_settings_save(admin_client):
     init_default_settings()
     r = admin_client.post("/admin/settings", data={
