@@ -100,6 +100,8 @@
     .purchase-inline input, .purchase-inline select { width: 118px; padding: 5px 7px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; text-align: right; }
     .purchase-inline input[type="date"] { text-align: left; }
     .purchase-missing { font-size: 11px; color: #9ca3af; margin-top: 3px; }
+    .purchase-warning { display: none; width: 100%; font-size: 11px; color: #b45309; text-align: left; }
+    .purchase-warning.visible { display: block; }
     .form-group { display: flex; flex-direction: column; gap: 4px; }
     .form-group label { font-size: 12px; color: #666; }
     .form-input { padding: 8px 10px; border: 1.5px solid #ddd; border-radius: 7px; font-size: 14px; color: #222; outline: none; }
@@ -329,10 +331,11 @@
           <select class="form-input" id="sel-purchase-source">
             <option value="current">aktualis ar</option>
             <option value="historical">historikus ar</option>
-            <option value="manual">manualis</option>
+            <option value="manual">kézi vételi ár</option>
           </select>
         </div>
         <button class="btn-history" onclick="fetchHistoricalForForm('sel')">Historikus ar</button>
+        <span class="purchase-warning" id="sel-purchase-warning"></span>
       </div>
       <button class="btn-add-stock" onclick="confirmAdd()">➕ Hozzáadás</button>
       <button class="btn-cancel-sel" onclick="cancelSelection()">Mégsem</button>
@@ -381,10 +384,11 @@
               <option value="">nincs megadva</option>
               <option value="current">aktualis ar</option>
               <option value="historical">historikus ar</option>
-              <option value="manual">manualis</option>
+              <option value="manual">kézi vételi ár</option>
             </select>
           </div>
           <button class="btn-history" onclick="fetchHistoricalForForm('m')">Historikus ar</button>
+          <span class="purchase-warning" id="m-purchase-warning"></span>
         </div>
         <div class="manual-hint">
           Tőzsdei végződések: magyar részvényeknél <strong>.BD</strong>, némeknél <strong>.DE</strong>, londoniaknál <strong>.L</strong>, bécsieknél <strong>.VI</strong>
@@ -815,6 +819,18 @@
     return value.toLocaleString('hu-HU', opts) + suffix;
   }
 
+  function isValidPurchasePrice(value, source) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return false;
+    if (source !== 'manual' && n <= 1) return false;
+    return true;
+  }
+
+  function isValidMarketNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0;
+  }
+
   function toHufValue(value, currency) {
     if (value == null || !Number.isFinite(value)) return null;
     const c = String(currency || '').toUpperCase();
@@ -829,10 +845,12 @@
     const price = p ? Number(p.price) : null;
     const currency = (p ? p.currency : null) || s.currency || null;
     const qty = Number(s.qty) || 0;
-    const currentValue = (price != null && Number.isFinite(price)) ? price * qty : null;
+    const validQty = isValidMarketNumber(qty);
+    const validCurrentPrice = isValidMarketNumber(price);
+    const currentValue = (validCurrentPrice && validQty) ? price * qty : null;
     const currentHuf = toHufValue(currentValue, currency);
     const purchasePrice = s.purchase_price != null && s.purchase_price !== '' ? Number(s.purchase_price) : null;
-    const hasPurchase = purchasePrice != null && Number.isFinite(purchasePrice) && purchasePrice > 0;
+    const hasPurchase = validQty && isValidPurchasePrice(purchasePrice, s.purchase_price_source || 'manual');
     const investedValue = hasPurchase ? purchasePrice * qty : null;
     const investedHuf = toHufValue(investedValue, currency);
     const profitLoss = currentValue != null && investedValue != null ? currentValue - investedValue : null;
@@ -1313,7 +1331,7 @@
   async function confirmAdd() {
     if (!selectedStock) return;
     const qty = parseFloat(document.getElementById('sel-qty').value);
-    if (!qty || qty <= 0) { alert('Kérlek adj meg érvényes darabszámot!'); return; }
+    if (!qty || qty <= 0) { setPurchaseWarning('sel', 'Kerlek adj meg ervenyes darabszamot.'); return; }
     // Kézi hozzáadás route-on keresztül (DB-be menti)
     const r = await apiFetch('/api/add_manual', {
       method: 'POST',
@@ -1327,7 +1345,7 @@
       })
     });
     if (!r) return;
-    if (!r.ok) { alert('Hiba a hozzáadásnál.'); return; }
+    if (!r.ok) { setPurchaseWarning('sel', 'Hiba a hozzaadasnal.'); return; }
     cancelSelection();
     // Friss portfólió a szerverről
     const pr = await apiFetch('/api/portfolio');
@@ -1427,11 +1445,30 @@
     const priceEl = document.getElementById(prefix + '-purchase-price');
     const dateEl = document.getElementById(prefix + '-purchase-date');
     const sourceEl = document.getElementById(prefix + '-purchase-source');
+    const source = sourceEl ? sourceEl.value : null;
+    const price = priceEl && priceEl.value !== '' ? Number(priceEl.value) : null;
     return {
-      purchase_price: priceEl && priceEl.value !== '' ? Number(priceEl.value) : null,
+      purchase_price: isValidPurchasePrice(price, source || 'manual') ? price : null,
       purchase_date: dateEl ? dateEl.value : null,
-      purchase_price_source: sourceEl ? sourceEl.value : null
+      purchase_price_source: isValidPurchasePrice(price, source || 'manual') ? source : null
     };
+  }
+
+  function setPurchaseWarning(target, message) {
+    const el = document.getElementById(target + '-purchase-warning');
+    if (!el) return;
+    el.textContent = message || '';
+    el.classList.toggle('visible', Boolean(message));
+  }
+
+  const historicalLookupWarnings = {};
+  function setRowPurchaseWarning(i, message) {
+    historicalLookupWarnings[i] = message || '';
+    const el = document.getElementById('purchase-warning-' + i);
+    if (el) {
+      el.textContent = message || '';
+      el.classList.toggle('visible', Boolean(message));
+    }
   }
 
   function markPurchaseManual(prefix) {
@@ -1442,20 +1479,32 @@
 
   async function prefillCurrentPurchasePrice(prefix, ticker) {
     try {
+      setPurchaseWarning(prefix, '');
       const r = await apiFetch('/api/prices', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({tickers: [ticker]})
       });
-      if (!r || !r.ok) return;
+      if (!r) return;
+      if (!r.ok) {
+        setPurchaseWarning(prefix, 'Nem sikerult aktualis arfolyamot lekerni. Add meg kezzel a veteli arat.');
+        return;
+      }
       const d = await r.json();
       const p = d.prices && d.prices[ticker];
-      if (!p || p.price == null) return;
+      if (!p || p.price == null || !isValidPurchasePrice(p.price, 'current')) {
+        setPurchaseWarning(prefix, 'Nem sikerult aktualis arfolyamot lekerni. Add meg kezzel a veteli arat.');
+        return;
+      }
       const priceEl = document.getElementById(prefix + '-purchase-price');
       const sourceEl = document.getElementById(prefix + '-purchase-source');
-      if (priceEl && !priceEl.value) priceEl.value = p.price;
-      if (sourceEl) sourceEl.value = 'current';
-    } catch(e) {}
+      if (priceEl && !priceEl.value) {
+        priceEl.value = p.price;
+        if (sourceEl) sourceEl.value = 'current';
+      }
+    } catch(e) {
+      setPurchaseWarning(prefix, 'Nem sikerult aktualis arfolyamot lekerni. Add meg kezzel a veteli arat.');
+    }
   }
 
   async function fetchHistoricalForForm(prefix) {
@@ -1466,11 +1515,15 @@
     const priceEl = document.getElementById(prefix + '-purchase-price');
     const sourceEl = document.getElementById(prefix + '-purchase-source');
     const date = dateEl ? dateEl.value : '';
-    if (!ticker || !date) { alert('Adj meg tickert es veteli datumot.'); return; }
+    if (!ticker || !date) { setPurchaseWarning(prefix, 'Adj meg tickert es veteli datumot.'); return; }
+    setPurchaseWarning(prefix, '');
     const r = await apiFetch('/api/price-history?ticker=' + encodeURIComponent(ticker) + '&date=' + encodeURIComponent(date));
     if (!r) return;
     const d = await r.json();
-    if (!d.ok) { alert(d.error || 'Historikus ar nem erheto el.'); return; }
+    if (!d.ok || !isValidPurchasePrice(d.price, 'historical')) {
+      setPurchaseWarning(prefix, 'Ehhez a reszvenyhez vagy datumhoz nem sikerult historikus arfolyamot lekerni. Add meg kezzel a veteli arat.');
+      return;
+    }
     if (priceEl) priceEl.value = d.price;
     if (dateEl) dateEl.value = d.used_date || date;
     if (sourceEl) sourceEl.value = 'historical';
@@ -1493,7 +1546,7 @@
   confirmAdd = async function() {
     if (!selectedStock) return;
     const qty = parseFloat(document.getElementById('sel-qty').value);
-    if (!qty || qty <= 0) { alert('Kerlek adj meg ervenyes darabszamot!'); return; }
+    if (!qty || qty <= 0) { setPurchaseWarning('sel', 'Kerlek adj meg ervenyes darabszamot.'); return; }
     const payload = {
       ticker: selectedStock.ticker,
       name: selectedStock.name || selectedStock.ticker,
@@ -1508,7 +1561,7 @@
       body: JSON.stringify(payload)
     });
     if (!r) return;
-    if (!r.ok) { alert('Hiba a hozzaadasnal.'); return; }
+    if (!r.ok) { setPurchaseWarning('sel', 'Hiba a hozzaadasnal.'); return; }
     cancelSelection();
     const pr = await apiFetch('/api/portfolio');
     if (pr) portfolio = await pr.json();
@@ -1566,11 +1619,15 @@
     const priceEl = document.getElementById('purchase-price-' + i);
     const sourceEl = document.getElementById('purchase-source-' + i);
     const date = dateEl ? dateEl.value : '';
-    if (!item || !date) { alert('Adj meg veteli datumot.'); return; }
+    if (!item || !date) { setRowPurchaseWarning(i, 'Adj meg veteli datumot.'); return; }
+    setRowPurchaseWarning(i, '');
     const r = await apiFetch('/api/price-history?ticker=' + encodeURIComponent(item.ticker) + '&date=' + encodeURIComponent(date));
     if (!r) return;
     const d = await r.json();
-    if (!d.ok) { alert(d.error || 'Historikus ar nem erheto el.'); return; }
+    if (!d.ok || !isValidPurchasePrice(d.price, 'historical')) {
+      setRowPurchaseWarning(i, 'Ehhez a reszvenyhez vagy datumhoz nem sikerult historikus arfolyamot lekerni. Add meg kezzel a veteli arat.');
+      return;
+    }
     if (priceEl) priceEl.value = d.price;
     if (dateEl) dateEl.value = d.used_date || date;
     if (sourceEl) sourceEl.value = 'historical';
@@ -1589,10 +1646,16 @@
     const priceEl = document.getElementById('purchase-price-' + i);
     const dateEl = document.getElementById('purchase-date-' + i);
     const sourceEl = document.getElementById('purchase-source-' + i);
+    const source = sourceEl ? sourceEl.value : null;
+    const price = priceEl && priceEl.value !== '' ? Number(priceEl.value) : null;
+    if (priceEl && priceEl.value !== '' && !isValidPurchasePrice(price, source || 'manual')) {
+      setRowPurchaseWarning(i, 'Érvénytelen vételi ár. Add meg kézzel, vagy kérj historikus árat.');
+      return;
+    }
     const payload = {
-      purchase_price: priceEl && priceEl.value !== '' ? Number(priceEl.value) : null,
+      purchase_price: price,
       purchase_date: dateEl ? dateEl.value : null,
-      purchase_price_source: sourceEl ? sourceEl.value : null
+      purchase_price_source: price != null ? source : null
     };
     const r = await apiFetch(`/api/portfolio/${item.id}`, {
       method: 'PATCH',
@@ -1603,6 +1666,7 @@
     const d = await r.json();
     if (!d.ok) { appendBanner(d.error || 'Veteli adatok mentese nem sikerult.'); return; }
     portfolio[i] = d.item || {...portfolio[i], ...payload};
+    setRowPurchaseWarning(i, '');
     renderTable();
     calcTotals();
   }
@@ -1633,7 +1697,7 @@
       }
       const currentStr = fmtMoney(m.currentValue, currency);
       const hufStr = m.currentHuf != null ? fmtMoney(m.currentHuf, 'HUF') : (m.currentValue != null ? '<span class="warn-cell">? (devizaarfolyam hianyzik)</span>' : '-');
-      const investedStr = m.hasPurchase ? fmtMoney(m.investedValue, currency) : '<span class="metric-neutral">Nincs megadva bekerulesi ar</span>';
+      const investedStr = m.hasPurchase ? fmtMoney(m.investedValue, currency) : '<span class="metric-neutral">Adj meg veteli arat a nyereseg szamitasahoz.</span>';
       const plClass = m.profitLoss == null ? 'metric-neutral' : (m.profitLoss >= 0 ? 'metric-positive' : 'metric-negative');
       const plStr = m.profitLoss == null ? '-' : fmtMoney(m.profitLoss, currency);
       const retStr = m.returnPct == null ? '-' : m.returnPct.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
@@ -1657,9 +1721,10 @@
             <option value="" ${!purchaseSourceVal ? 'selected' : ''}>nincs</option>
             <option value="current" ${purchaseSourceVal === 'current' ? 'selected' : ''}>aktualis</option>
             <option value="historical" ${purchaseSourceVal === 'historical' ? 'selected' : ''}>historikus</option>
-            <option value="manual" ${purchaseSourceVal === 'manual' ? 'selected' : ''}>manualis</option>
+            <option value="manual" ${purchaseSourceVal === 'manual' ? 'selected' : ''}>kézi vételi ár</option>
           </select>
           <button class="btn-history" onclick="fetchHistoricalForRow(${i})">Datum ar</button>
+          <span class="purchase-warning ${historicalLookupWarnings[i] ? 'visible' : ''}" id="purchase-warning-${i}">${historicalLookupWarnings[i] || ''}</span>
         </div></td>
         <td class="num">${investedStr}</td>
         <td class="num ${plClass}">${plStr}</td>
@@ -1671,11 +1736,19 @@
   };
 
   calcTotals = function() {
-    let totalHUF = 0, totalInvestedHUF = 0, hasCurrent = false, hasInvested = false;
+    let totalHUF = 0, totalCurrentWithPurchaseHUF = 0, totalInvestedHUF = 0;
+    let hasCurrent = false, hasInvested = false, hasCurrentWithPurchase = false;
     portfolio.forEach(s => {
       const m = getPositionMetrics(s);
       if (m.currentHuf != null) { totalHUF += m.currentHuf; hasCurrent = true; }
-      if (m.investedHuf != null) { totalInvestedHUF += m.investedHuf; hasInvested = true; }
+      if (m.investedHuf != null) {
+        totalInvestedHUF += m.investedHuf;
+        hasInvested = true;
+        if (m.currentHuf != null) {
+          totalCurrentWithPurchaseHUF += m.currentHuf;
+          hasCurrentWithPurchase = true;
+        }
+      }
     });
     if (hasCurrent) {
       const totalUSD = fx['USD/HUF'] ? totalHUF / fx['USD/HUF'] : null;
@@ -1689,8 +1762,8 @@
     const retEl = document.getElementById('total-return');
     plEl.classList.remove('positive', 'negative');
     retEl.classList.remove('positive', 'negative');
-    if (hasCurrent && hasInvested) {
-      const pl = totalHUF - totalInvestedHUF;
+    if (hasCurrentWithPurchase && hasInvested) {
+      const pl = totalCurrentWithPurchaseHUF - totalInvestedHUF;
       const ret = totalInvestedHUF > 0 ? (pl / totalInvestedHUF) * 100 : null;
       plEl.textContent = fmtMoney(Math.round(pl), 'HUF');
       if (ret != null) retEl.textContent = ret.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';

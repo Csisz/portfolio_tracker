@@ -123,7 +123,7 @@ def get_historical_price(ticker: str, requested_date: str) -> dict:
     except (TypeError, ValueError):
         return {"ok": False, "error": "Invalid date"}
 
-    start = target - timedelta(days=14)
+    start = target - timedelta(days=7)
     end = target + timedelta(days=1)
     try:
         t = yf.Ticker(clean_ticker)
@@ -139,7 +139,7 @@ def get_historical_price(ticker: str, requested_date: str) -> dict:
         selected_price = None
         for idx, close in close_rows.items():
             row_date = idx.date() if hasattr(idx, "date") else datetime.strptime(str(idx)[:10], "%Y-%m-%d").date()
-            if row_date <= target:
+            if start <= row_date <= target:
                 selected_date = row_date
                 selected_price = float(close)
 

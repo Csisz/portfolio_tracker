@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     last_price_time     TEXT,
     purchase_price      REAL,
     purchase_date       TEXT,
-    purchase_price_source TEXT,
+    purchase_price_source TEXT DEFAULT 'current',
     UNIQUE(user_id, ticker)
 );
 
@@ -207,9 +207,9 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     last_price_currency TEXT,
     last_price_source   TEXT,
     last_price_time     TEXT,
-    purchase_price      REAL,
-    purchase_date       TEXT,
-    purchase_price_source TEXT,
+    purchase_price      NUMERIC,
+    purchase_date       DATE,
+    purchase_price_source TEXT DEFAULT 'current',
     UNIQUE(user_id, ticker)
 );
 
@@ -354,10 +354,21 @@ def _apply_migrations(conn):
     except Exception:
         conn.rollback()
 
+    if _is_postgres():
+        purchase_migrations = [
+            "ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS purchase_price NUMERIC",
+            "ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS purchase_date DATE",
+            "ALTER TABLE portfolio_items ADD COLUMN IF NOT EXISTS purchase_price_source TEXT DEFAULT 'current'",
+        ]
+    else:
+        purchase_migrations = [
+            "ALTER TABLE portfolio_items ADD COLUMN purchase_price REAL",
+            "ALTER TABLE portfolio_items ADD COLUMN purchase_date TEXT",
+            "ALTER TABLE portfolio_items ADD COLUMN purchase_price_source TEXT DEFAULT 'current'",
+        ]
+
     for sql in [
-        "ALTER TABLE portfolio_items ADD COLUMN purchase_price REAL",
-        "ALTER TABLE portfolio_items ADD COLUMN purchase_date TEXT",
-        "ALTER TABLE portfolio_items ADD COLUMN purchase_price_source TEXT",
+        *purchase_migrations,
         "ALTER TABLE alerts ADD COLUMN email_to TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE alerts ADD COLUMN cooldown_minutes INTEGER NOT NULL DEFAULT 60",
         "ALTER TABLE alerts ADD COLUMN last_value REAL",
@@ -641,8 +652,14 @@ def _purchase_fields(item: dict) -> dict:
         source = None
     purchase_price = _float_or_none(item.get("purchase_price"))
     purchase_date = str(item.get("purchase_date") or "").strip() or None
+    if purchase_price is not None and purchase_price <= 0:
+        purchase_price = None
+    if purchase_price is not None and source in {"current", "historical"} and purchase_price <= 1:
+        purchase_price = None
     if purchase_price is not None and not source:
         source = "manual"
+    if purchase_price is None:
+        source = None
     return {
         "pp": purchase_price,
         "pd": purchase_date,

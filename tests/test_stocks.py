@@ -221,6 +221,21 @@ def test_get_historical_price_invalid_date():
     assert result["ok"] is False
 
 
+def test_get_historical_price_rejects_previous_day_outside_7_days():
+    import pandas as pd
+
+    fake_ticker = MagicMock()
+    fake_ticker.history.return_value = pd.DataFrame(
+        {"Close": [180.0]},
+        index=pd.to_datetime(["2024-01-07"]),
+    )
+
+    with patch("services.stocks.yf.Ticker", return_value=fake_ticker):
+        result = get_historical_price("AAPL", "2024-01-15")
+
+    assert result["ok"] is False
+
+
 # ===========================================================================
 # _to_stooq – általános mapping
 # ===========================================================================
