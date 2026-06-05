@@ -19,25 +19,28 @@ import logging
 import os
 import secrets
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import (Flask, Response, flash, jsonify, redirect, render_template,
                    request, send_file, session, url_for)
 
 import services.db as db
 from services import symbol_resolver
-from services.db import (create_user, delete_portfolio_item_by_id,
+from services.db import (create_alert, create_user, delete_alert,
+                          delete_portfolio_item_by_id, get_alerts,
                           get_all_users, get_audit_logs, get_portfolio,
                           get_stats, get_user_by_id, init_db, log_event,
-                          save_full_portfolio, set_user_password,
+                          save_full_portfolio, set_alert_active,
+                          set_user_password, update_alert_state,
                           upsert_portfolio_item, upsert_symbol_cache,
                           update_item_last_price, update_last_login,
                           update_portfolio_qty, update_user, verify_password)
 from services.fx import get_fx_rates
 from services.settings_store import (get_all_settings_with_defaults,
-                                      get_bool, get_setting, init_default_settings,
-                                      save_setting)
+                                      get_bool, get_int, get_setting,
+                                      init_default_settings, save_setting)
 from services.stocks import get_prices_for_tickers, get_ticker_info
+from services.emailer import send_email, smtp_configured
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -210,6 +213,7 @@ def index():
     return render_template(
         "index.html",
         portfolio=portfolio,
+        auto_refresh_seconds=get_int("auto_refresh_seconds"),
         username=current_username(),
         role=current_role(),
     )
@@ -407,6 +411,257 @@ def api_symbols_recent():
     symbols_sorted = sorted(symbols, key=lambda s: s.get("last_seen", ""), reverse=True)
     return jsonify({"symbols": symbols_sorted[:20]})
 
+
+
+# ---------------------------------------------------------------------------
+# /api/alerts
+# ---------------------------------------------------------------------------
+
+ALERT_LABELS = {
+    "price_below": "Részvényárfolyam alá esett",
+    "price_above": "Részvényárfolyam elérte / fölé ment",
+    "price_change_up_pct": "Részvényárfolyam nőtt",
+    "price_change_down_pct": "Részvényárfolyam csökkent",
+    "portfolio_value_above": "Portfólióérték elérte / fölé ment",
+    "portfolio_value_below": "Portfólióérték alá esett",
+    "portfolio_change_up_pct": "Portfólióérték nőtt",
+    "portfolio_change_down_pct": "Portfólióérték csökkent",
+}
+
+
+@app.route("/api/alerts", methods=["GET", "POST"])
+@login_required
+def api_alerts():
+    if request.method == "GET":
+        return jsonify({
+            "alerts": get_alerts(current_user_id()),
+            "smtp_configured": smtp_configured(),
+            "alerts_enabled": get_bool("alerts_enabled"),
+            "default_cooldown_minutes": get_int("alert_cooldown_minutes") or 60,
+        })
+
+    if not get_bool("alerts_enabled"):
+        return jsonify({"ok": False, "error": "A riasztások jelenleg ki vannak kapcsolva."}), 403
+
+    data = request.get_json(silent=True) or {}
+    if not data.get("cooldown_minutes"):
+        data["cooldown_minutes"] = get_int("alert_cooldown_minutes") or 60
+    try:
+        alert = create_alert(current_user_id(), data)
+        log_event(current_user_id(), "alert_create", f"type={alert.get('alert_type')} ticker={alert.get('ticker') or '-'}", _client_ip())
+        return jsonify({"ok": True, "alert": alert, "smtp_configured": smtp_configured()})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.route("/api/alerts/<int:alert_id>", methods=["DELETE"])
+@login_required
+def api_alert_delete(alert_id: int):
+    ok = delete_alert(current_user_id(), alert_id)
+    if ok:
+        log_event(current_user_id(), "alert_delete", f"id={alert_id}", _client_ip())
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/alerts/<int:alert_id>/toggle", methods=["POST"])
+@login_required
+def api_alert_toggle(alert_id: int):
+    data = request.get_json(silent=True) or {}
+    active = bool(data.get("active"))
+    ok = set_alert_active(current_user_id(), alert_id, active)
+    if ok:
+        log_event(current_user_id(), "alert_toggle", f"id={alert_id} active={active}", _client_ip())
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/alerts/check", methods=["POST"])
+@login_required
+def api_alert_check():
+    if not get_bool("alerts_enabled"):
+        return jsonify({"ok": True, "checked": 0, "triggered": [], "warnings": ["A riasztások ki vannak kapcsolva."]})
+
+    uid = current_user_id()
+    alerts = get_alerts(uid, active_only=True)
+    if not alerts:
+        return jsonify({"ok": True, "checked": 0, "triggered": [], "warnings": []})
+
+    portfolio = get_portfolio(uid)
+    tickers = [i["ticker"] for i in portfolio]
+    prices_result = get_prices_for_tickers(tickers) if tickers else {"prices": {}}
+    prices = prices_result.get("prices", {})
+    fx_result = get_fx_rates(get_setting("fx_rate_mode", "market"))
+    fx = fx_result.get("fx", {})
+
+    triggered, warnings = _evaluate_alerts(uid, alerts, portfolio, prices, fx)
+    return jsonify({
+        "ok": True,
+        "checked": len(alerts),
+        "triggered": triggered,
+        "warnings": warnings,
+        "smtp_configured": smtp_configured(),
+    })
+
+
+def _evaluate_alerts(uid: int, alerts: list[dict], portfolio: list[dict], prices: dict, fx: dict):
+    triggered = []
+    warnings = []
+    portfolio_total_huf = _portfolio_total_huf(portfolio, prices, fx)
+
+    for alert in alerts:
+        current_value = _alert_current_value(alert, portfolio_total_huf, prices, fx)
+        if current_value is None:
+            update_alert_state(uid, alert["id"], checked=True)
+            continue
+
+        alert_type = alert.get("alert_type")
+        should_trigger = False
+        threshold = alert.get("threshold")
+        percent = alert.get("percent")
+        last_value = alert.get("last_value")
+
+        if alert_type in ("price_above", "portfolio_value_above"):
+            should_trigger = threshold is not None and current_value >= float(threshold)
+        elif alert_type in ("price_below", "portfolio_value_below"):
+            should_trigger = threshold is not None and current_value <= float(threshold)
+        elif alert_type in ("price_change_up_pct", "portfolio_change_up_pct"):
+            if last_value is None:
+                update_alert_state(uid, alert["id"], last_value=current_value, checked=True)
+                continue
+            should_trigger = current_value >= float(last_value) * (1 + float(percent) / 100.0)
+        elif alert_type in ("price_change_down_pct", "portfolio_change_down_pct"):
+            if last_value is None:
+                update_alert_state(uid, alert["id"], last_value=current_value, checked=True)
+                continue
+            should_trigger = current_value <= float(last_value) * (1 - float(percent) / 100.0)
+
+        if should_trigger and _alert_can_trigger(alert):
+            subject, body = _alert_email_text(alert, current_value)
+            ok, msg = send_email(alert.get("email_to"), subject, body)
+            if ok:
+                update_alert_state(uid, alert["id"], last_value=current_value, triggered=True, checked=True)
+                triggered.append({
+                    "id": alert["id"],
+                    "label": ALERT_LABELS.get(alert_type, alert_type),
+                    "ticker": alert.get("ticker"),
+                    "current_value": current_value,
+                    "currency": _alert_display_currency(alert),
+                })
+                log_event(uid, "alert_triggered", f"id={alert['id']} type={alert_type} value={current_value}", _client_ip())
+            else:
+                warnings.append(msg)
+                update_alert_state(uid, alert["id"], checked=True)
+        else:
+            # Százalékos riasztásnál a bázisértéket megtartjuk az első ellenőrzéstől
+            # vagy az utolsó sikeres riasztástól számítva. Így nem nullázódik minden frissítéskor.
+            if "change" in alert_type:
+                update_alert_state(uid, alert["id"], checked=True)
+            else:
+                update_alert_state(uid, alert["id"], last_value=current_value, checked=True)
+
+    return triggered, warnings
+
+
+def _alert_current_value(alert: dict, portfolio_total_huf: float | None, prices: dict, fx: dict):
+    t = alert.get("alert_type") or ""
+    if t.startswith("portfolio_"):
+        return portfolio_total_huf
+
+    ticker = (alert.get("ticker") or "").strip().upper()
+    if not ticker or ticker not in prices:
+        return None
+    p = prices.get(ticker) or {}
+    if p.get("price") is None:
+        return None
+    from_currency = (p.get("currency") or alert.get("currency") or "").upper()
+    to_currency = (alert.get("currency") or from_currency or "HUF").upper()
+    return _convert_currency(float(p["price"]), from_currency, to_currency, fx)
+
+
+def _portfolio_total_huf(portfolio: list[dict], prices: dict, fx: dict):
+    total = 0.0
+    has_data = False
+    for item in portfolio:
+        p = prices.get(item.get("ticker")) or {}
+        if p.get("price") is None:
+            continue
+        qty = float(item.get("qty") or 0)
+        currency = (p.get("currency") or item.get("currency") or "").upper()
+        huf = _convert_currency(float(p["price"]) * qty, currency, "HUF", fx)
+        if huf is not None:
+            total += huf
+            has_data = True
+    return total if has_data else None
+
+
+def _convert_currency(value: float, from_currency: str, to_currency: str, fx: dict):
+    from_currency = (from_currency or "").upper()
+    to_currency = (to_currency or "").upper()
+    if not from_currency or not to_currency:
+        return value
+    if from_currency == to_currency:
+        return value
+    if from_currency == "GBX":
+        value = value / 100.0
+        from_currency = "GBP"
+    if to_currency == "GBX":
+        gbp = _convert_currency(value, from_currency, "GBP", fx)
+        return gbp * 100.0 if gbp is not None else None
+    if to_currency == "HUF":
+        if from_currency == "HUF":
+            return value
+        rate = fx.get(f"{from_currency}/HUF")
+        return value * rate if rate else None
+    if from_currency == "HUF":
+        rate = fx.get(f"{to_currency}/HUF")
+        return value / rate if rate else None
+    huf = _convert_currency(value, from_currency, "HUF", fx)
+    if huf is None:
+        return None
+    return _convert_currency(huf, "HUF", to_currency, fx)
+
+
+def _alert_can_trigger(alert: dict) -> bool:
+    last = alert.get("last_triggered_at")
+    if not last:
+        return True
+    try:
+        last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return True
+    cooldown = int(alert.get("cooldown_minutes") or 60)
+    return datetime.now() - last_dt >= timedelta(minutes=cooldown)
+
+
+def _alert_display_currency(alert: dict) -> str:
+    if (alert.get("alert_type") or "").startswith("portfolio_"):
+        return "HUF"
+    return (alert.get("currency") or "").upper() or ""
+
+
+def _alert_email_text(alert: dict, current_value: float):
+    label = ALERT_LABELS.get(alert.get("alert_type"), alert.get("alert_type"))
+    currency = _alert_display_currency(alert)
+    ticker = alert.get("ticker") or "Teljes portfólió"
+    value_txt = f"{current_value:,.2f} {currency}".replace(",", " ")
+
+    parts = [
+        "Portfólió Követő riasztás",
+        "",
+        f"Riasztás: {label}",
+        f"Érintett: {ticker}",
+        f"Aktuális érték: {value_txt}",
+    ]
+    if alert.get("threshold") is not None:
+        parts.append(f"Beállított célérték: {float(alert['threshold']):,.2f} {currency}".replace(",", " "))
+    if alert.get("percent") is not None:
+        parts.append(f"Beállított változás: {float(alert['percent']):.2f}%")
+    if alert.get("last_value") is not None:
+        parts.append(f"Bázisérték: {float(alert['last_value']):,.2f} {currency}".replace(",", " "))
+    parts.extend([
+        "",
+        "Megjegyzés: ez automatikus értesítés. A piaci adatok külső szolgáltatóktól érkeznek, ezért döntés előtt érdemes ellenőrizni őket.",
+    ])
+    return f"Portfólió riasztás: {label}", "\n".join(parts)
 
 # ---------------------------------------------------------------------------
 # /api/export/xlsx

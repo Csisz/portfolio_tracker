@@ -231,3 +231,28 @@ RuntimeError: Production módban DATABASE_URL kötelező!
 
 **Admin/admin jelszó veszély** → `/admin/system` oldalon piros jelzés.
 Állíts be PORTFOLIO_USERNAME és PORTFOLIO_PASSWORD változókat.
+
+
+## Automatikus frissítés és email riasztások
+
+A főoldalon beállítható, hogy az adatok milyen gyakran frissüljenek automatikusan. A választott időköz böngészőnként mentődik, az admin felületen pedig az `auto_refresh_seconds` értékkel adható meg az alapértelmezett frissítési idő.
+
+A riasztások a főoldalon hozhatók létre. Támogatott feltételek:
+
+- részvényárfolyam egy érték alá csökken vagy egy értéket elér,
+- részvényárfolyam adott százalékot nő vagy csökken,
+- teljes portfólió HUF értéke egy összeg alá csökken vagy egy összeget elér,
+- teljes portfólió értéke adott százalékot nő vagy csökken.
+
+Email küldéshez SMTP környezeti változók szükségesek:
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=pelda@gmail.com
+SMTP_PASSWORD=alkalmazas-jelszo
+SMTP_FROM=pelda@gmail.com
+SMTP_TLS=true
+```
+
+A riasztások minden kézi vagy automatikus frissítés után ellenőrződnek. Vercel/serverless környezetben ez akkor fut biztosan, amikor az oldal nyitva van vagy valaki meghívja az `/api/alerts/check` végpontot.

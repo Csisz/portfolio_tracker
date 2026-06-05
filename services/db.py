@@ -156,6 +156,24 @@ CREATE TABLE IF NOT EXISTS fx_rate_cache (
     rate_date  TEXT,
     UNIQUE(mode, pair)
 );
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             INTEGER NOT NULL,
+    alert_type          TEXT NOT NULL,
+    ticker              TEXT,
+    threshold           REAL,
+    percent             REAL,
+    currency            TEXT DEFAULT 'HUF',
+    email_to            TEXT NOT NULL,
+    is_active           INTEGER NOT NULL DEFAULT 1,
+    cooldown_minutes    INTEGER NOT NULL DEFAULT 60,
+    last_value          REAL,
+    last_triggered_at   TEXT,
+    last_checked_at     TEXT,
+    created_at          TEXT,
+    updated_at          TEXT
+);
 """
 
 _SCHEMA_POSTGRES = """
@@ -230,6 +248,24 @@ CREATE TABLE IF NOT EXISTS fx_rate_cache (
     rate_date  TEXT,
     UNIQUE(mode, pair)
 );
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id                  SERIAL PRIMARY KEY,
+    user_id             INTEGER NOT NULL,
+    alert_type          TEXT NOT NULL,
+    ticker              TEXT,
+    threshold           REAL,
+    percent             REAL,
+    currency            TEXT DEFAULT 'HUF',
+    email_to            TEXT NOT NULL,
+    is_active           INTEGER NOT NULL DEFAULT 1,
+    cooldown_minutes    INTEGER NOT NULL DEFAULT 60,
+    last_value          REAL,
+    last_triggered_at   TEXT,
+    last_checked_at     TEXT,
+    created_at          TEXT,
+    updated_at          TEXT
+);
 """
 
 
@@ -266,6 +302,63 @@ def _apply_migrations(conn):
             conn.commit()
         except Exception:
             # Oszlop már létezik – normál eset
+            conn.rollback()
+
+    # Riasztások táblája meglévő DB-khez is.
+    alerts_sql = """
+        CREATE TABLE IF NOT EXISTS alerts (
+            id                  SERIAL PRIMARY KEY,
+            user_id             INTEGER NOT NULL,
+            alert_type          TEXT NOT NULL,
+            ticker              TEXT,
+            threshold           REAL,
+            percent             REAL,
+            currency            TEXT DEFAULT 'HUF',
+            email_to            TEXT NOT NULL,
+            is_active           INTEGER NOT NULL DEFAULT 1,
+            cooldown_minutes    INTEGER NOT NULL DEFAULT 60,
+            last_value          REAL,
+            last_triggered_at   TEXT,
+            last_checked_at     TEXT,
+            created_at          TEXT,
+            updated_at          TEXT
+        )
+    """ if _is_postgres() else """
+        CREATE TABLE IF NOT EXISTS alerts (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             INTEGER NOT NULL,
+            alert_type          TEXT NOT NULL,
+            ticker              TEXT,
+            threshold           REAL,
+            percent             REAL,
+            currency            TEXT DEFAULT 'HUF',
+            email_to            TEXT NOT NULL,
+            is_active           INTEGER NOT NULL DEFAULT 1,
+            cooldown_minutes    INTEGER NOT NULL DEFAULT 60,
+            last_value          REAL,
+            last_triggered_at   TEXT,
+            last_checked_at     TEXT,
+            created_at          TEXT,
+            updated_at          TEXT
+        )
+    """
+    try:
+        conn.execute(text(alerts_sql))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
+    for sql in [
+        "ALTER TABLE alerts ADD COLUMN email_to TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE alerts ADD COLUMN cooldown_minutes INTEGER NOT NULL DEFAULT 60",
+        "ALTER TABLE alerts ADD COLUMN last_value REAL",
+        "ALTER TABLE alerts ADD COLUMN last_triggered_at TEXT",
+        "ALTER TABLE alerts ADD COLUMN last_checked_at TEXT",
+    ]:
+        try:
+            conn.execute(text(sql))
+            conn.commit()
+        except Exception:
             conn.rollback()
 
 
@@ -815,6 +908,119 @@ def get_latest_fx_rate_cache(mode: str) -> Optional[dict]:
         "rate_date": rate_date,
     }
 
+
+
+# ---------------------------------------------------------------------------
+# Alerts
+# ---------------------------------------------------------------------------
+
+ALERT_TYPES = {
+    "price_below", "price_above", "price_change_up_pct", "price_change_down_pct",
+    "portfolio_value_above", "portfolio_value_below", "portfolio_change_up_pct", "portfolio_change_down_pct",
+}
+
+
+def get_alerts(user_id: int, active_only: bool = False) -> list[dict]:
+    sql = "SELECT * FROM alerts WHERE user_id=:uid"
+    if active_only:
+        sql += " AND is_active = 1"
+    sql += " ORDER BY created_at DESC"
+    with _conn() as conn:
+        rows = conn.execute(text(sql), {"uid": user_id}).fetchall()
+        return [_row(r) for r in rows]
+
+
+def get_alert_by_id(user_id: int, alert_id: int) -> Optional[dict]:
+    with _conn() as conn:
+        row = conn.execute(
+            text("SELECT * FROM alerts WHERE user_id=:uid AND id=:id"),
+            {"uid": user_id, "id": alert_id},
+        ).fetchone()
+        return _row(row)
+
+
+def create_alert(user_id: int, alert: dict) -> dict:
+    alert_type = str(alert.get("alert_type", "")).strip()
+    if alert_type not in ALERT_TYPES:
+        raise ValueError("Ismeretlen riasztástípus.")
+
+    ticker = str(alert.get("ticker") or "").strip().upper() or None
+    threshold = alert.get("threshold")
+    percent = alert.get("percent")
+    currency = str(alert.get("currency") or "HUF").strip().upper() or "HUF"
+    email_to = str(alert.get("email_to") or "").strip()
+    cooldown = int(alert.get("cooldown_minutes") or 60)
+    now = _now()
+
+    if not email_to or "@" not in email_to:
+        raise ValueError("Érvényes email cím szükséges.")
+    if alert_type.startswith("price_") and not ticker:
+        raise ValueError("Részvény riasztáshoz ticker szükséges.")
+    if "value" in alert_type or alert_type in {"price_below", "price_above"}:
+        if threshold is None or float(threshold) <= 0:
+            raise ValueError("Pozitív célérték szükséges.")
+    if "change" in alert_type:
+        if percent is None or float(percent) <= 0:
+            raise ValueError("Pozitív százalék szükséges.")
+    cooldown = max(5, min(cooldown, 24 * 60))
+
+    with _conn() as conn:
+        conn.execute(text("""
+            INSERT INTO alerts
+            (user_id, alert_type, ticker, threshold, percent, currency, email_to,
+             is_active, cooldown_minutes, last_value, created_at, updated_at)
+            VALUES
+            (:uid, :type, :ticker, :threshold, :percent, :currency, :email_to,
+             1, :cooldown, :last_value, :ts, :ts)
+        """), {
+            "uid": user_id,
+            "type": alert_type,
+            "ticker": ticker,
+            "threshold": float(threshold) if threshold not in (None, "") else None,
+            "percent": float(percent) if percent not in (None, "") else None,
+            "currency": currency,
+            "email_to": email_to,
+            "cooldown": cooldown,
+            "last_value": alert.get("last_value"),
+            "ts": now,
+        })
+        row = conn.execute(text("SELECT * FROM alerts WHERE user_id=:uid ORDER BY id DESC LIMIT 1"), {"uid": user_id}).fetchone()
+        return _row(row)
+
+
+def delete_alert(user_id: int, alert_id: int) -> bool:
+    with _conn() as conn:
+        cur = conn.execute(
+            text("DELETE FROM alerts WHERE user_id=:uid AND id=:id"),
+            {"uid": user_id, "id": alert_id},
+        )
+        return cur.rowcount > 0
+
+
+def update_alert_state(user_id: int, alert_id: int, *, last_value=None, triggered: bool = False, checked: bool = True) -> bool:
+    fields = {"updated_at": _now()}
+    if checked:
+        fields["last_checked_at"] = _now()
+    if last_value is not None:
+        fields["last_value"] = float(last_value)
+    if triggered:
+        fields["last_triggered_at"] = _now()
+    if len(fields) == 1:
+        return False
+    set_clause = ", ".join(f"{k}=:{k}" for k in fields)
+    fields.update({"uid": user_id, "id": alert_id})
+    with _conn() as conn:
+        cur = conn.execute(text(f"UPDATE alerts SET {set_clause} WHERE user_id=:uid AND id=:id"), fields)
+        return cur.rowcount > 0
+
+
+def set_alert_active(user_id: int, alert_id: int, active: bool) -> bool:
+    with _conn() as conn:
+        cur = conn.execute(text("""
+            UPDATE alerts SET is_active=:active, updated_at=:ts
+            WHERE user_id=:uid AND id=:id
+        """), {"active": int(active), "ts": _now(), "uid": user_id, "id": alert_id})
+        return cur.rowcount > 0
 
 # ---------------------------------------------------------------------------
 # Settings

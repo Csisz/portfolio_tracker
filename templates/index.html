@@ -121,6 +121,39 @@
     .btn-refresh:disabled { opacity: 0.6; cursor: default; }
     .btn-excel { padding: 7px 14px; border-radius: 7px; border: 1px solid #d1d5db; background: #f9fafb; color: #374151; cursor: pointer; font-size: 13px; transition: all 0.15s; display: flex; align-items: center; gap: 5px; text-decoration: none; }
     .btn-excel:hover { background: #e5e7eb; }
+    .auto-refresh-panel { margin: 12px 0 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: #fff; border: 1px solid #e8e8e0; border-radius: 10px; padding: 12px 16px; }
+    .auto-refresh-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .mini-label { font-size: 12px; color: #666; font-weight: 600; }
+    .mini-select, .mini-input { padding: 7px 9px; border: 1.5px solid #ddd; border-radius: 7px; font-size: 13px; background: #fff; outline: none; }
+    .mini-select:focus, .mini-input:focus { border-color: #1a1a2e; }
+    .refresh-status { font-size: 12px; color: #888; }
+
+    .alerts-panel { background: #fff; border: 1px solid #e8e8e0; border-radius: 10px; padding: 16px; margin: 18px 0 20px; }
+    .alerts-title { font-size: 13px; font-weight: 700; color: #1a1a2e; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .alerts-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 0.8fr; gap: 10px; align-items: end; }
+    .alerts-grid-2 { display: grid; grid-template-columns: 1.2fr 1fr 1fr 0.8fr; gap: 10px; align-items: end; margin-top: 10px; }
+    .alert-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+    .btn-alert { padding: 8px 16px; background: #1a1a2e; color: #fff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; }
+    .btn-alert:hover { background: #2d2d50; }
+    .btn-alert-secondary { padding: 8px 14px; background: #f9fafb; color: #374151; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; cursor: pointer; }
+    .btn-alert-secondary:hover { background: #e5e7eb; }
+    .alert-status { margin-top: 10px; font-size: 13px; padding: 8px 12px; border-radius: 7px; display: none; }
+    .alert-status.ok { background: #dcfce7; color: #166534; display: block; }
+    .alert-status.warn { background: #fffbeb; color: #92400e; display: block; }
+    .alert-status.err { background: #fee2e2; color: #991b1b; display: block; }
+    .alert-list { margin-top: 14px; border-top: 1px solid #f0f0e8; padding-top: 12px; }
+    .alert-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #f4f4ee; }
+    .alert-row:last-child { border-bottom: none; }
+    .alert-main { font-size: 13px; color: #374151; line-height: 1.55; }
+    .alert-main strong { color: #1a1a2e; }
+    .alert-meta { color: #9ca3af; font-size: 11px; }
+    .alert-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 5px; }
+    .alert-on { background: #dcfce7; color: #166534; }
+    .alert-off { background: #fee2e2; color: #991b1b; }
+    .btn-alert-del { background: none; border: none; color: #dc2626; cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 5px; }
+    .btn-alert-del:hover { background: #fee2e2; }
+    .btn-alert-toggle { background: none; border: 1px solid #ddd; color: #555; cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 5px; }
+    .btn-alert-toggle:hover { background: #f3f4f6; }
     .section-btns { display: flex; align-items: center; gap: 8px; }
     .src-badge { font-size: 10px; color: #9ca3af; display: block; margin-top: 2px; }
     /* Portfólió összetétel */
@@ -172,6 +205,7 @@
       thead th:nth-child(4), tbody td:nth-child(4) { display: none; }
       .selected-stock-box.visible { flex-direction: column; align-items: flex-start; }
       .manual-grid-5 { grid-template-columns: 1fr 1fr; }
+      .alerts-grid, .alerts-grid-2 { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -204,6 +238,22 @@
   <!-- Valutasáv -->
   <div class="fx-bar" id="fx-bar">
     <span class="loading-cell">Valutaárfolyamok betöltése...</span>
+  </div>
+
+  <!-- Automatikus frissítés -->
+  <div class="auto-refresh-panel">
+    <div class="auto-refresh-left">
+      <span class="mini-label">⏱ Automatikus frissítés:</span>
+      <select class="mini-select" id="refresh-interval" onchange="setRefreshInterval(this.value)">
+        <option value="0">Kikapcsolva</option>
+        <option value="60">1 percenként</option>
+        <option value="300">5 percenként</option>
+        <option value="900">15 percenként</option>
+        <option value="1800">30 percenként</option>
+        <option value="3600">60 percenként</option>
+      </select>
+    </div>
+    <div class="refresh-status" id="refresh-status">–</div>
   </div>
 
   <!-- Portfólió összetétel -->
@@ -288,6 +338,76 @@
     </div>
   </div>
 
+  <!-- Riasztások -->
+  <div class="alerts-panel">
+    <div class="alerts-title">
+      <span>🔔 Email riasztások</span>
+      <button class="btn-alert-secondary" onclick="checkAlerts(true)">Ellenőrzés most</button>
+    </div>
+
+    <div class="alerts-grid">
+      <div class="form-group">
+        <label>Riasztás típusa</label>
+        <select class="form-input" id="alert-type" onchange="updateAlertFormVisibility()">
+          <option value="price_below">Részvény árfolyama alá csökken</option>
+          <option value="price_above">Részvény árfolyama elér / fölé megy</option>
+          <option value="price_change_up_pct">Részvény nő legalább ennyi %-ot</option>
+          <option value="price_change_down_pct">Részvény csökken legalább ennyi %-ot</option>
+          <option value="portfolio_value_above">Teljes portfólió elér egy HUF összeget</option>
+          <option value="portfolio_value_below">Teljes portfólió alá csökken HUF-ban</option>
+          <option value="portfolio_change_up_pct">Teljes portfólió nő legalább ennyi %-ot</option>
+          <option value="portfolio_change_down_pct">Teljes portfólió csökken legalább ennyi %-ot</option>
+        </select>
+      </div>
+      <div class="form-group" id="alert-ticker-group">
+        <label>Részvény</label>
+        <select class="form-input" id="alert-ticker"></select>
+      </div>
+      <div class="form-group" id="alert-threshold-group">
+        <label id="alert-threshold-label">Célérték</label>
+        <input type="number" class="form-input" id="alert-threshold" placeholder="pl. 25000" min="0" step="any">
+      </div>
+      <div class="form-group" id="alert-percent-group" style="display:none">
+        <label>Változás %</label>
+        <input type="number" class="form-input" id="alert-percent" placeholder="pl. 5" min="0" step="any">
+      </div>
+    </div>
+
+    <div class="alerts-grid-2">
+      <div class="form-group">
+        <label>Email cím</label>
+        <input type="email" class="form-input" id="alert-email" placeholder="pl. zoltan@email.hu">
+      </div>
+      <div class="form-group" id="alert-currency-group">
+        <label>Deviza</label>
+        <select class="form-input" id="alert-currency">
+          <option value="HUF">HUF</option>
+          <option value="USD">USD</option>
+          <option value="EUR">EUR</option>
+          <option value="GBP">GBP</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Újraküldés leghamarabb</label>
+        <select class="form-input" id="alert-cooldown">
+          <option value="15">15 perc</option>
+          <option value="60" selected>1 óra</option>
+          <option value="180">3 óra</option>
+          <option value="1440">1 nap</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <button class="btn-alert" onclick="createAlert()">➕ Riasztás mentése</button>
+      </div>
+    </div>
+
+    <div class="manual-hint">
+      A riasztások minden kézi vagy automatikus frissítés után ellenőrződnek. Email küldéshez productionben SMTP beállítás szükséges.
+    </div>
+    <div class="alert-status" id="alert-status"></div>
+    <div class="alert-list" id="alert-list"></div>
+  </div>
+
   <!-- Portfólió táblázat -->
   <div class="section-header">
     <span class="section-title">Részvényeim</span>
@@ -338,6 +458,12 @@
   let fxOfficial = {};
   let searchTimeout = null;
   let selectedStock = null;
+  let defaultAutoRefreshSeconds = Number({{ auto_refresh_seconds | default(300) }});
+  if (!Number.isFinite(defaultAutoRefreshSeconds)) defaultAutoRefreshSeconds = 300;
+  let autoRefreshSeconds = defaultAutoRefreshSeconds;
+  let autoRefreshTimer = null;
+  let refreshInProgress = false;
+  let alerts = [];
 
   // ========== 401 kezelés (session lejárt) ==========
   async function apiFetch(url, options = {}) {
@@ -350,8 +476,54 @@
   window.onload = () => {
     renderTable();
     loadRecent();
+    initAutoRefreshControls();
+    updateAlertFormVisibility();
+    loadAlerts();
     refreshAll();
   };
+
+  // ========== AUTOMATIKUS FRISSÍTÉS ==========
+  function initAutoRefreshControls() {
+    const saved = localStorage.getItem('portfolioAutoRefreshSeconds');
+    autoRefreshSeconds = saved !== null ? Number(saved) : defaultAutoRefreshSeconds;
+    if (!Number.isFinite(autoRefreshSeconds) || autoRefreshSeconds < 0) autoRefreshSeconds = 300;
+    const select = document.getElementById('refresh-interval');
+    if (select) {
+      const values = [...select.options].map(o => o.value);
+      select.value = values.includes(String(autoRefreshSeconds)) ? String(autoRefreshSeconds) : '300';
+      autoRefreshSeconds = Number(select.value);
+    }
+    setupAutoRefresh();
+    updateAutoRefreshStatus();
+  }
+
+  function setRefreshInterval(value) {
+    autoRefreshSeconds = Number(value) || 0;
+    localStorage.setItem('portfolioAutoRefreshSeconds', String(autoRefreshSeconds));
+    setupAutoRefresh();
+    updateAutoRefreshStatus();
+  }
+
+  function setupAutoRefresh() {
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+    if (autoRefreshSeconds > 0) {
+      autoRefreshTimer = setInterval(() => {
+        if (!document.hidden) refreshAll();
+      }, autoRefreshSeconds * 1000);
+    }
+  }
+
+  function updateAutoRefreshStatus() {
+    const el = document.getElementById('refresh-status');
+    if (!el) return;
+    if (autoRefreshSeconds <= 0) {
+      el.textContent = 'Automatikus frissítés kikapcsolva.';
+    } else {
+      const min = autoRefreshSeconds >= 60 ? Math.round(autoRefreshSeconds / 60) + ' perc' : autoRefreshSeconds + ' mp';
+      el.textContent = 'Az oldal automatikusan frissül: ' + min + 'enként.';
+    }
+  }
 
   // ========== DEVIZAÁRFOLYAM ==========
   async function loadFx() {
@@ -513,6 +685,8 @@
 
   // ========== REFRESH ==========
   async function refreshAll() {
+    if (refreshInProgress) return;
+    refreshInProgress = true;
     const btn = document.getElementById('refresh-btn');
     btn.innerHTML = '<span class="spinner"></span> Frissítés...';
     btn.disabled = true;
@@ -524,12 +698,15 @@
       calcTotals();
       calcComposition();
       updateSourceInfo();
+      await checkAlerts(false);
       const now = new Date();
       document.getElementById('update-info').textContent =
         'Frissítve: ' + now.toLocaleTimeString('hu-HU', {hour:'2-digit', minute:'2-digit'});
+      updateAutoRefreshStatus();
     } finally {
       btn.innerHTML = '↻ Frissítés';
       btn.disabled = false;
+      refreshInProgress = false;
     }
   }
 
@@ -646,6 +823,7 @@
         <td><button class="btn-del" onclick="removeStock(${i},${itemId})" title="Törlés">×</button></td>
       </tr>`;
     }).join('');
+    fillAlertTickerOptions();
   }
 
   function calcTotals() {
@@ -779,6 +957,189 @@
     }
     row.innerHTML = cards;
     row.style.display = 'grid';
+  }
+
+  // ========== RIASZTÁSOK ==========
+  const ALERT_TYPE_LABELS = {
+    price_below: 'Részvény árfolyama alá csökken',
+    price_above: 'Részvény árfolyama elér / fölé megy',
+    price_change_up_pct: 'Részvény nő legalább ennyi %-ot',
+    price_change_down_pct: 'Részvény csökken legalább ennyi %-ot',
+    portfolio_value_above: 'Teljes portfólió elér egy HUF összeget',
+    portfolio_value_below: 'Teljes portfólió alá csökken HUF-ban',
+    portfolio_change_up_pct: 'Teljes portfólió nő legalább ennyi %-ot',
+    portfolio_change_down_pct: 'Teljes portfólió csökken legalább ennyi %-ot'
+  };
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  }
+
+  function isPortfolioAlert(type) { return String(type || '').startsWith('portfolio_'); }
+  function isPercentAlert(type) { return String(type || '').includes('change'); }
+
+  function updateAlertFormVisibility() {
+    const type = document.getElementById('alert-type')?.value || 'price_below';
+    const portfolioAlert = isPortfolioAlert(type);
+    const percentAlert = isPercentAlert(type);
+    const tickerGroup = document.getElementById('alert-ticker-group');
+    const thresholdGroup = document.getElementById('alert-threshold-group');
+    const percentGroup = document.getElementById('alert-percent-group');
+    const currencyGroup = document.getElementById('alert-currency-group');
+    const thresholdLabel = document.getElementById('alert-threshold-label');
+    if (tickerGroup) tickerGroup.style.display = portfolioAlert ? 'none' : 'flex';
+    if (thresholdGroup) thresholdGroup.style.display = percentAlert ? 'none' : 'flex';
+    if (percentGroup) percentGroup.style.display = percentAlert ? 'flex' : 'none';
+    if (currencyGroup) currencyGroup.style.display = portfolioAlert ? 'none' : 'flex';
+    if (thresholdLabel) thresholdLabel.textContent = portfolioAlert ? 'Célérték (HUF)' : 'Célárfolyam';
+    fillAlertTickerOptions();
+  }
+
+  function fillAlertTickerOptions() {
+    const sel = document.getElementById('alert-ticker');
+    if (!sel) return;
+    const current = sel.value;
+    if (!portfolio.length) {
+      sel.innerHTML = '<option value="">Nincs részvény a portfólióban</option>';
+      return;
+    }
+    sel.innerHTML = portfolio.map(s => `<option value="${escapeHtml(s.ticker)}">${escapeHtml(s.ticker)} · ${escapeHtml(s.name || '')}</option>`).join('');
+    if (current && portfolio.some(s => s.ticker === current)) sel.value = current;
+  }
+
+  async function loadAlerts() {
+    try {
+      const r = await apiFetch('/api/alerts');
+      if (!r) return;
+      const d = await r.json();
+      alerts = d.alerts || [];
+      if (d.default_cooldown_minutes) {
+        const cd = document.getElementById('alert-cooldown');
+        if (cd && [...cd.options].some(o => o.value === String(d.default_cooldown_minutes))) cd.value = String(d.default_cooldown_minutes);
+      }
+      renderAlerts(d.smtp_configured, d.alerts_enabled);
+    } catch(e) {
+      setAlertStatus('err', 'A riasztások betöltése nem sikerült.');
+    }
+  }
+
+  function renderAlerts(smtpConfigured = true, alertsEnabled = true) {
+    const list = document.getElementById('alert-list');
+    if (!list) return;
+    let html = '';
+    if (!alertsEnabled) {
+      html += '<div class="alert-status warn" style="display:block;margin-bottom:10px">A riasztások admin beállításban ki vannak kapcsolva.</div>';
+    } else if (!smtpConfigured) {
+      html += '<div class="alert-status warn" style="display:block;margin-bottom:10px">Email küldéshez még be kell állítani az SMTP környezeti változókat Vercelben vagy .env fájlban.</div>';
+    }
+    if (!alerts.length) {
+      html += '<div class="manual-hint">Még nincs riasztás beállítva.</div>';
+      list.innerHTML = html;
+      return;
+    }
+    html += alerts.map(a => {
+      const type = a.alert_type;
+      const label = ALERT_TYPE_LABELS[type] || type;
+      const subject = a.ticker || 'Teljes portfólió';
+      const unit = isPortfolioAlert(type) ? 'HUF' : (a.currency || '');
+      const limit = isPercentAlert(type)
+        ? `${Number(a.percent || 0).toLocaleString('hu-HU')}%`
+        : `${Number(a.threshold || 0).toLocaleString('hu-HU')} ${unit}`;
+      const last = a.last_triggered_at ? ('Utolsó email: ' + String(a.last_triggered_at).replace('T',' ').substring(0,16)) : 'Még nem küldött emailt';
+      const state = Number(a.is_active) === 1;
+      return `<div class="alert-row">
+        <div class="alert-main">
+          <strong>${escapeHtml(subject)}</strong> – ${escapeHtml(label)}: <strong>${escapeHtml(limit)}</strong>
+          <span class="alert-badge ${state ? 'alert-on' : 'alert-off'}">${state ? 'aktív' : 'kikapcsolva'}</span><br>
+          <span class="alert-meta">Email: ${escapeHtml(a.email_to)} · ${escapeHtml(last)} · cooldown: ${a.cooldown_minutes || 60} perc</span>
+        </div>
+        <div>
+          <button class="btn-alert-toggle" onclick="toggleAlert(${a.id}, ${state ? 'false' : 'true'})">${state ? 'Kikapcsol' : 'Bekapcsol'}</button>
+          <button class="btn-alert-del" onclick="deleteAlert(${a.id})">Törlés</button>
+        </div>
+      </div>`;
+    }).join('');
+    list.innerHTML = html;
+  }
+
+  async function createAlert() {
+    const type = document.getElementById('alert-type').value;
+    const ticker = document.getElementById('alert-ticker').value;
+    const threshold = document.getElementById('alert-threshold').value;
+    const percent = document.getElementById('alert-percent').value;
+    const currency = isPortfolioAlert(type) ? 'HUF' : document.getElementById('alert-currency').value;
+    const email = document.getElementById('alert-email').value.trim();
+    const cooldown = document.getElementById('alert-cooldown').value;
+
+    if (!email || !email.includes('@')) { setAlertStatus('err', 'Adj meg érvényes email címet.'); return; }
+    if (!isPortfolioAlert(type) && !ticker) { setAlertStatus('err', 'Válassz részvényt a riasztáshoz.'); return; }
+    if (isPercentAlert(type) && (!percent || Number(percent) <= 0)) { setAlertStatus('err', 'Adj meg pozitív százalékot.'); return; }
+    if (!isPercentAlert(type) && (!threshold || Number(threshold) <= 0)) { setAlertStatus('err', 'Adj meg pozitív célértéket.'); return; }
+
+    try {
+      const r = await apiFetch('/api/alerts', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          alert_type: type,
+          ticker: isPortfolioAlert(type) ? null : ticker,
+          threshold: isPercentAlert(type) ? null : Number(threshold),
+          percent: isPercentAlert(type) ? Number(percent) : null,
+          currency,
+          email_to: email,
+          cooldown_minutes: Number(cooldown) || 60
+        })
+      });
+      if (!r) return;
+      const d = await r.json();
+      if (!d.ok) { setAlertStatus('err', d.error || 'Nem sikerült menteni a riasztást.'); return; }
+      setAlertStatus(d.smtp_configured ? 'ok' : 'warn', d.smtp_configured ? 'Riasztás mentve.' : 'Riasztás mentve, de az SMTP még nincs beállítva, ezért emailt még nem tud küldeni.');
+      document.getElementById('alert-threshold').value = '';
+      document.getElementById('alert-percent').value = '';
+      await loadAlerts();
+    } catch(e) {
+      setAlertStatus('err', 'Hálózati hiba a riasztás mentésekor.');
+    }
+  }
+
+  async function deleteAlert(id) {
+    if (!confirm('Törlöd ezt a riasztást?')) return;
+    const r = await apiFetch('/api/alerts/' + id, {method:'DELETE'});
+    if (r) await loadAlerts();
+  }
+
+  async function toggleAlert(id, active) {
+    const r = await apiFetch('/api/alerts/' + id + '/toggle', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({active})
+    });
+    if (r) await loadAlerts();
+  }
+
+  async function checkAlerts(showOk) {
+    try {
+      const r = await apiFetch('/api/alerts/check', {method:'POST'});
+      if (!r) return;
+      const d = await r.json();
+      (d.warnings || []).forEach(w => appendBanner(w));
+      if (d.triggered && d.triggered.length) {
+        const msg = d.triggered.map(t => `${t.ticker || 'Portfólió'} riasztás elküldve`).join(' | ');
+        appendBanner('📧 ' + msg);
+        await loadAlerts();
+      } else if (showOk) {
+        setAlertStatus('ok', 'Riasztások ellenőrizve. Most nincs új küldendő email.');
+      }
+    } catch(e) {
+      if (showOk) setAlertStatus('err', 'Riasztás ellenőrzési hiba.');
+    }
+  }
+
+  function setAlertStatus(type, msg) {
+    const el = document.getElementById('alert-status');
+    if (!el) return;
+    el.className = 'alert-status ' + type;
+    el.textContent = msg;
   }
 
   // ========== KERESŐ ==========
