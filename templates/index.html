@@ -509,6 +509,14 @@
   }
 
   // ========== DEVIZAÁRFOLYAM ==========
+  function portfolioNeedsFx() {
+    return portfolio.some(s => {
+      const p = prices[s.ticker];
+      const c = ((p && p.currency) || s.currency || '').toUpperCase();
+      return c && c !== 'HUF';
+    });
+  }
+
   async function loadFx() {
     try {
       const r = await apiFetch('/api/fx');
@@ -522,22 +530,18 @@
       fxMarket = d.market || {};
       fxOfficial = d.official || {};
       if (d.errors && d.errors.length) {
-        const needsFx = portfolio.some(s => {
-          const c = (s.currency || '').toUpperCase();
-          return c && c !== 'HUF';
-        });
-        if (needsFx) {
+        if (portfolioNeedsFx()) {
           if ((fxRequestedMode === 'market' || fxRequestedMode === 'auto') && fxMode === 'official') {
             appendBanner('Piaci árfolyam nem elérhető, MNB hivatalos napi árfolyamot használunk.');
           } else if ((d.source || '').includes('cache')) {
             appendBanner('Élő devizaárfolyam nem elérhető – az utolsó ismert árfolyamot használjuk.');
           } else if (d.source === 'none') {
-            appendBanner('Devizaárfolyam nem elérhető, ezért a nem forintos részvények HUF összesítése nem pontos.');
+            appendBanner('Devizaárfolyam nem elérhető, ezért a HUF összesítés nem teljes.');
           }
         }
       }
     } catch(e) {
-      appendBanner('Devizaárfolyam most nem tölthető be.');
+      if (portfolioNeedsFx()) appendBanner('Devizaárfolyam most nem tölthető be.');
     }
   }
 
@@ -555,14 +559,10 @@
 
     // Nincs adat
     if (!eur && !usd) {
-      const allHuf = portfolio.length === 0 || portfolio.every(s => {
-        const p = prices[s.ticker];
-        const c = ((p && p.currency) || s.currency || '').toUpperCase();
-        return !c || c === 'HUF';
-      });
-      const msg = (allHuf && portfolio.length > 0)
-        ? 'Devizaárfolyam nem elérhető, de a HUF összesítés pontos (a portfólió csak HUF elemeket tartalmaz).'
-        : 'Devizaárfolyam jelenleg nem tölthető be.';
+      const needsFx = portfolioNeedsFx();
+      const msg = needsFx
+        ? 'Devizaárfolyam nem elérhető, ezért a HUF összesítés nem teljes.'
+        : 'A portfólió csak HUF elemeket tartalmaz, ezért devizaátváltásra nincs szükség.';
       bar.innerHTML = `${title}
         <div class="fx-main-rates">
           <div class="fx-rate-item">
@@ -574,7 +574,7 @@
             <span class="fx-rate-value" style="font-size:16px;color:#bbb">nem elérhető</span>
           </div>
         </div>
-        <div class="fx-meta"><span class="fx-meta-warn">${msg}</span></div>`;
+        <div class="fx-meta"><span class="${needsFx ? 'fx-meta-warn' : ''}">${msg}</span></div>`;
       return;
     }
 
