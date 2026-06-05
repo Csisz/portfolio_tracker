@@ -40,7 +40,7 @@ from services.settings_store import (get_all_settings_with_defaults,
                                       get_bool, get_int, get_setting,
                                       get_setting_bool, get_setting_int,
                                       init_default_settings, save_setting)
-from services.stocks import get_prices_for_tickers, get_ticker_info
+from services.stocks import get_historical_price, get_prices_for_tickers, get_ticker_info
 from services.emailer import send_email, smtp_configured
 
 # ---------------------------------------------------------------------------
@@ -259,6 +259,15 @@ def api_prices():
     return jsonify(result)
 
 
+@app.route("/api/price-history", methods=["GET"])
+@login_required
+def api_price_history():
+    ticker = request.args.get("ticker", "")
+    requested_date = request.args.get("date", "")
+    result = get_historical_price(ticker, requested_date)
+    return jsonify(result), (200 if result.get("ok") else 400)
+
+
 # ---------------------------------------------------------------------------
 # /api/portfolio
 # ---------------------------------------------------------------------------
@@ -296,6 +305,33 @@ def api_portfolio_delete(item_id: int):
 @login_required
 def api_portfolio_update(item_id: int):
     data = request.get_json(silent=True) or {}
+    purchase_keys = {"purchase_price", "purchase_date", "purchase_price_source"}
+    if purchase_keys.intersection(data.keys()) and "qty" not in data:
+        portfolio = get_portfolio(current_user_id())
+        item = next((i for i in portfolio if i["id"] == item_id), None)
+        if not item:
+            return jsonify({"ok": False, "error": "Elem nem talalhato"}), 404
+
+        updated = dict(item)
+        if "purchase_price" in data:
+            raw_price = data.get("purchase_price")
+            if raw_price in (None, ""):
+                updated["purchase_price"] = None
+            else:
+                try:
+                    updated["purchase_price"] = float(raw_price)
+                except (ValueError, TypeError):
+                    return jsonify({"ok": False, "error": "Ervenytelen veteli ar"}), 400
+        if "purchase_date" in data:
+            updated["purchase_date"] = str(data.get("purchase_date") or "").strip() or None
+        if "purchase_price_source" in data:
+            updated["purchase_price_source"] = str(data.get("purchase_price_source") or "").strip() or None
+
+        saved = upsert_portfolio_item(current_user_id(), updated)
+        log_event(current_user_id(), "portfolio_purchase_update",
+                  f"ticker={item['ticker']}", _client_ip())
+        return jsonify({"ok": True, "item": saved})
+
     qty = data.get("qty")
     if qty is None:
         return jsonify({"ok": False, "error": "qty mező szükséges"}), 400
@@ -370,10 +406,22 @@ def api_add_manual():
     if not validated:
         validation_warning = "Ticker most nem ellenőrizhető, de elmentve. Árfolyam később próbálható."
 
+    purchase_price = data.get("purchase_price")
+    purchase_date = str(data.get("purchase_date") or "").strip() or None
+    purchase_source = str(data.get("purchase_price_source") or "").strip().lower() or None
+    if purchase_price in (None, "") and info and info.get("last_price"):
+        purchase_price = info.get("last_price")
+        purchase_source = "current"
+    elif purchase_price not in (None, "") and not purchase_source:
+        purchase_source = "manual"
+
     saved = upsert_portfolio_item(current_user_id(), {
         "ticker": ticker, "name": name, "qty": qty,
         "currency": currency, "exchange": exchange,
         "source": "manual", "manually_added": True,
+        "purchase_price": purchase_price,
+        "purchase_date": purchase_date,
+        "purchase_price_source": purchase_source,
     })
 
     sym = {
@@ -393,6 +441,7 @@ def api_add_manual():
         "ok": True, "ticker": ticker, "name": name,
         "currency": currency, "exchange": exchange,
         "validated": validated, "id": saved.get("id"),
+        "item": saved,
     }
     if validation_warning:
         resp["warning"] = validation_warning

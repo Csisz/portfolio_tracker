@@ -8,7 +8,7 @@ import csv
 import io
 from unittest.mock import patch, MagicMock
 
-from services.stocks import _bd_to_stooq, _to_stooq, _fetch_price_stooq, get_last_price, get_prices_for_tickers
+from services.stocks import _bd_to_stooq, _to_stooq, _fetch_price_stooq, get_historical_price, get_last_price, get_prices_for_tickers
 
 
 # ===========================================================================
@@ -195,6 +195,30 @@ def test_prices_for_tickers_no_stale_flag_when_live():
 
     assert "AAPL" in result["prices"]
     assert result["prices"]["AAPL"].get("stale") is not True
+
+
+def test_get_historical_price_uses_previous_trading_day():
+    import pandas as pd
+
+    fake_ticker = MagicMock()
+    fake_ticker.history.return_value = pd.DataFrame(
+        {"Close": [180.0, 185.5]},
+        index=pd.to_datetime(["2024-01-11", "2024-01-12"]),
+    )
+    fake_ticker.fast_info.currency = "USD"
+
+    with patch("services.stocks.yf.Ticker", return_value=fake_ticker):
+        result = get_historical_price("AAPL", "2024-01-15")
+
+    assert result["ok"] is True
+    assert result["price"] == 185.5
+    assert result["used_date"] == "2024-01-12"
+    assert result["currency"] == "USD"
+
+
+def test_get_historical_price_invalid_date():
+    result = get_historical_price("AAPL", "not-a-date")
+    assert result["ok"] is False
 
 
 # ===========================================================================

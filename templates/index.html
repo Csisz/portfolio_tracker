@@ -13,10 +13,13 @@
 
     .container { max-width: 1020px; margin: 0 auto; padding: 24px 16px; }
 
-    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
     .card { background: #fff; border-radius: 10px; padding: 18px 20px; border: 1px solid #e8e8e0; }
     .card-label { font-size: 12px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
     .card-value { font-size: 26px; font-weight: 600; color: #1a1a2e; }
+    .card-value.positive, .metric-positive { color: #15803d; }
+    .card-value.negative, .metric-negative { color: #dc2626; }
+    .metric-neutral { color: #9ca3af; }
     .card-sub { font-size: 12px; color: #aaa; margin-top: 3px; }
 
     /* ===== DEVIZAÁRFOLYAM KÁRTYA ===== */
@@ -92,6 +95,11 @@
     .manual-form.visible { display: block; }
     .manual-grid { display: grid; grid-template-columns: 1fr 1fr 80px; gap: 10px; align-items: end; }
     .manual-grid-5 { display: grid; grid-template-columns: 1fr 1fr 100px 100px 90px; gap: 10px; align-items: end; }
+    .purchase-grid { display: grid; grid-template-columns: 130px 130px 130px auto; gap: 10px; align-items: end; margin-top: 10px; width: 100%; }
+    .purchase-inline { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+    .purchase-inline input, .purchase-inline select { width: 118px; padding: 5px 7px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; text-align: right; }
+    .purchase-inline input[type="date"] { text-align: left; }
+    .purchase-missing { font-size: 11px; color: #9ca3af; margin-top: 3px; }
     .form-group { display: flex; flex-direction: column; gap: 4px; }
     .form-group label { font-size: 12px; color: #666; }
     .form-input { padding: 8px 10px; border: 1.5px solid #ddd; border-radius: 7px; font-size: 14px; color: #222; outline: none; }
@@ -99,6 +107,8 @@
     .form-input::placeholder { color: #bbb; }
     .btn-manual-add { padding: 9px 18px; background: #374151; color: #fff; border: none; border-radius: 8px; font-size: 13px; cursor: pointer; white-space: nowrap; align-self: flex-end; }
     .btn-manual-add:hover { background: #1f2937; }
+    .btn-history { padding: 8px 12px; background: #f9fafb; color: #374151; border: 1px solid #d1d5db; border-radius: 7px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+    .btn-history:hover { background: #e5e7eb; }
     .manual-hint { font-size: 11px; color: #9ca3af; margin-top: 6px; }
     .manual-status { margin-top: 8px; font-size: 13px; padding: 8px 12px; border-radius: 7px; display: none; }
     .manual-status.ok { background: #dcfce7; color: #166534; display: block; }
@@ -205,6 +215,7 @@
       thead th:nth-child(4), tbody td:nth-child(4) { display: none; }
       .selected-stock-box.visible { flex-direction: column; align-items: flex-start; }
       .manual-grid-5 { grid-template-columns: 1fr 1fr; }
+      .purchase-grid { grid-template-columns: 1fr 1fr; }
       .alerts-grid, .alerts-grid-2 { grid-template-columns: 1fr; }
     }
   </style>
@@ -232,6 +243,21 @@
       <div class="card-label">Összesen (EUR)</div>
       <div class="card-value" id="total-eur">–</div>
       <div class="card-sub">euró</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Befektetett ertek</div>
+      <div class="card-value" id="total-invested">-</div>
+      <div class="card-sub">bekerulesi ar alapjan</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Nyereseg / veszteseg</div>
+      <div class="card-value" id="total-pl">-</div>
+      <div class="card-sub">aktualis - bekerulesi</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Teljes hozam</div>
+      <div class="card-value" id="total-return">-</div>
+      <div class="card-sub">befektetett ertekre vetitve</div>
     </div>
   </div>
 
@@ -289,6 +315,25 @@
         <label>Darabszám:</label>
         <input type="number" class="qty-input" id="sel-qty" value="1" min="0.001" step="any">
       </div>
+      <div class="purchase-grid">
+        <div class="form-group">
+          <label>Veteli datum</label>
+          <input type="date" class="form-input" id="sel-purchase-date">
+        </div>
+        <div class="form-group">
+          <label>Veteli ar</label>
+          <input type="number" class="form-input" id="sel-purchase-price" min="0" step="any" oninput="markPurchaseManual('sel')">
+        </div>
+        <div class="form-group">
+          <label>Forras</label>
+          <select class="form-input" id="sel-purchase-source">
+            <option value="current">aktualis ar</option>
+            <option value="historical">historikus ar</option>
+            <option value="manual">manualis</option>
+          </select>
+        </div>
+        <button class="btn-history" onclick="fetchHistoricalForForm('sel')">Historikus ar</button>
+      </div>
       <button class="btn-add-stock" onclick="confirmAdd()">➕ Hozzáadás</button>
       <button class="btn-cancel-sel" onclick="cancelSelection()">Mégsem</button>
     </div>
@@ -320,6 +365,26 @@
             <label>Darabszám *</label>
             <input type="number" class="form-input" id="m-qty" value="1" min="0.001" step="any">
           </div>
+        </div>
+        <div class="purchase-grid">
+          <div class="form-group">
+            <label>Veteli datum</label>
+            <input type="date" class="form-input" id="m-purchase-date">
+          </div>
+          <div class="form-group">
+            <label>Veteli ar</label>
+            <input type="number" class="form-input" id="m-purchase-price" min="0" step="any" oninput="markPurchaseManual('m')">
+          </div>
+          <div class="form-group">
+            <label>Forras</label>
+            <select class="form-input" id="m-purchase-source">
+              <option value="">nincs megadva</option>
+              <option value="current">aktualis ar</option>
+              <option value="historical">historikus ar</option>
+              <option value="manual">manualis</option>
+            </select>
+          </div>
+          <button class="btn-history" onclick="fetchHistoricalForForm('m')">Historikus ar</button>
         </div>
         <div class="manual-hint">
           Tőzsdei végződések: magyar részvényeknél <strong>.BD</strong>, némeknél <strong>.DE</strong>, londoniaknál <strong>.L</strong>, bécsieknél <strong>.VI</strong>
@@ -422,11 +487,15 @@
           <th class="num">Árfolyam / Forrás</th>
           <th class="num">Érték (saját deviza)</th>
           <th class="num">Érték (HUF)</th>
+          <th class="num">Veteli ar</th>
+          <th class="num">Befektetett ertek</th>
+          <th class="num">Nyereseg / veszteseg</th>
+          <th class="num">Hozam %</th>
           <th></th>
         </tr>
       </thead>
       <tbody id="stocks-tbody">
-        <tr><td colspan="6" class="loading-cell" style="padding:20px;text-align:center">Betöltés...</td></tr>
+        <tr><td colspan="10" class="loading-cell" style="padding:20px;text-align:center">Betöltés...</td></tr>
       </tbody>
     </table>
   </div>
@@ -739,10 +808,43 @@
   }
 
   // ========== TÁBLÁZAT ==========
+  function fmtMoney(value, currency, digits = 0) {
+    if (value == null || !Number.isFinite(value)) return '-';
+    const opts = {minimumFractionDigits: digits, maximumFractionDigits: digits};
+    const suffix = currency === 'HUF' ? ' Ft' : (currency ? ' ' + currency : '');
+    return value.toLocaleString('hu-HU', opts) + suffix;
+  }
+
+  function toHufValue(value, currency) {
+    if (value == null || !Number.isFinite(value)) return null;
+    const c = String(currency || '').toUpperCase();
+    if (!c || c === 'HUF') return value;
+    if (fx[c + '/HUF']) return value * fx[c + '/HUF'];
+    if ((c === 'GBP' || c === 'GBX') && fx['GBP/HUF']) return value * fx['GBP/HUF'] / 100;
+    return null;
+  }
+
+  function getPositionMetrics(s) {
+    const p = prices[s.ticker];
+    const price = p ? Number(p.price) : null;
+    const currency = (p ? p.currency : null) || s.currency || null;
+    const qty = Number(s.qty) || 0;
+    const currentValue = (price != null && Number.isFinite(price)) ? price * qty : null;
+    const currentHuf = toHufValue(currentValue, currency);
+    const purchasePrice = s.purchase_price != null && s.purchase_price !== '' ? Number(s.purchase_price) : null;
+    const hasPurchase = purchasePrice != null && Number.isFinite(purchasePrice) && purchasePrice > 0;
+    const investedValue = hasPurchase ? purchasePrice * qty : null;
+    const investedHuf = toHufValue(investedValue, currency);
+    const profitLoss = currentValue != null && investedValue != null ? currentValue - investedValue : null;
+    const profitLossHuf = currentHuf != null && investedHuf != null ? currentHuf - investedHuf : null;
+    const returnPct = profitLoss != null && investedValue > 0 ? (profitLoss / investedValue) * 100 : null;
+    return {p, price, currency, qty, currentValue, currentHuf, purchasePrice, hasPurchase, investedValue, investedHuf, profitLoss, profitLossHuf, returnPct};
+  }
+
   function renderTable() {
     const tbody = document.getElementById('stocks-tbody');
     if (!portfolio.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#bbb;padding:24px">Még nincs részvény. Keress egyet fent!</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#bbb;padding:24px">Még nincs részvény. Keress egyet fent!</td></tr>';
       return;
     }
     tbody.innerHTML = portfolio.map((s, i) => {
@@ -1321,6 +1423,285 @@
       ).join('');
     } catch(e) {}
   }
+  function getPurchasePayload(prefix) {
+    const priceEl = document.getElementById(prefix + '-purchase-price');
+    const dateEl = document.getElementById(prefix + '-purchase-date');
+    const sourceEl = document.getElementById(prefix + '-purchase-source');
+    return {
+      purchase_price: priceEl && priceEl.value !== '' ? Number(priceEl.value) : null,
+      purchase_date: dateEl ? dateEl.value : null,
+      purchase_price_source: sourceEl ? sourceEl.value : null
+    };
+  }
+
+  function markPurchaseManual(prefix) {
+    const sourceEl = document.getElementById(prefix + '-purchase-source');
+    const priceEl = document.getElementById(prefix + '-purchase-price');
+    if (sourceEl && priceEl && priceEl.value !== '') sourceEl.value = 'manual';
+  }
+
+  async function prefillCurrentPurchasePrice(prefix, ticker) {
+    try {
+      const r = await apiFetch('/api/prices', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({tickers: [ticker]})
+      });
+      if (!r || !r.ok) return;
+      const d = await r.json();
+      const p = d.prices && d.prices[ticker];
+      if (!p || p.price == null) return;
+      const priceEl = document.getElementById(prefix + '-purchase-price');
+      const sourceEl = document.getElementById(prefix + '-purchase-source');
+      if (priceEl && !priceEl.value) priceEl.value = p.price;
+      if (sourceEl) sourceEl.value = 'current';
+    } catch(e) {}
+  }
+
+  async function fetchHistoricalForForm(prefix) {
+    const ticker = prefix === 'sel'
+      ? selectedStock && selectedStock.ticker
+      : document.getElementById('m-ticker').value.trim().toUpperCase();
+    const dateEl = document.getElementById(prefix + '-purchase-date');
+    const priceEl = document.getElementById(prefix + '-purchase-price');
+    const sourceEl = document.getElementById(prefix + '-purchase-source');
+    const date = dateEl ? dateEl.value : '';
+    if (!ticker || !date) { alert('Adj meg tickert es veteli datumot.'); return; }
+    const r = await apiFetch('/api/price-history?ticker=' + encodeURIComponent(ticker) + '&date=' + encodeURIComponent(date));
+    if (!r) return;
+    const d = await r.json();
+    if (!d.ok) { alert(d.error || 'Historikus ar nem erheto el.'); return; }
+    if (priceEl) priceEl.value = d.price;
+    if (dateEl) dateEl.value = d.used_date || date;
+    if (sourceEl) sourceEl.value = 'historical';
+  }
+
+  const _selectStockBase = selectStock;
+  selectStock = function(ticker, name, exchange, type, currency) {
+    _selectStockBase(ticker, name, exchange, type, currency);
+    const today = new Date().toISOString().slice(0, 10);
+    const dateEl = document.getElementById('sel-purchase-date');
+    const priceEl = document.getElementById('sel-purchase-price');
+    const sourceEl = document.getElementById('sel-purchase-source');
+    if (dateEl) dateEl.value = today;
+    if (priceEl) priceEl.value = '';
+    if (sourceEl) sourceEl.value = 'current';
+    prefillCurrentPurchasePrice('sel', ticker);
+  };
+
+  const _confirmAddBase = confirmAdd;
+  confirmAdd = async function() {
+    if (!selectedStock) return;
+    const qty = parseFloat(document.getElementById('sel-qty').value);
+    if (!qty || qty <= 0) { alert('Kerlek adj meg ervenyes darabszamot!'); return; }
+    const payload = {
+      ticker: selectedStock.ticker,
+      name: selectedStock.name || selectedStock.ticker,
+      qty,
+      currency: selectedStock.currency || '',
+      exchange: selectedStock.exchange || '',
+      ...getPurchasePayload('sel')
+    };
+    const r = await apiFetch('/api/add_manual', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (!r) return;
+    if (!r.ok) { alert('Hiba a hozzaadasnal.'); return; }
+    cancelSelection();
+    const pr = await apiFetch('/api/portfolio');
+    if (pr) portfolio = await pr.json();
+    renderTable();
+    await loadPrices();
+    renderTable();
+    calcTotals();
+    calcComposition();
+    loadRecent();
+  };
+
+  const _submitManualBase = submitManual;
+  submitManual = async function() {
+    const ticker = document.getElementById('m-ticker').value.trim().toUpperCase();
+    const name = document.getElementById('m-name').value.trim();
+    const currency = document.getElementById('m-currency').value.trim().toUpperCase();
+    const exchange = document.getElementById('m-exchange').value.trim();
+    const qty = parseFloat(document.getElementById('m-qty').value);
+    if (!ticker) { setManualStatus('err', 'A ticker mezo kotelezo.'); return; }
+    if (!qty || qty <= 0) { setManualStatus('err', 'Ervenytelen darabszam.'); return; }
+    setManualStatus('warn', 'Feldolgozas...');
+    try {
+      const r = await apiFetch('/api/add_manual', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ticker, name, currency, exchange, qty, ...getPurchasePayload('m')})
+      });
+      if (!r) return;
+      const d = await r.json();
+      if (!d.ok) { setManualStatus('err', d.error || 'Hiba.'); return; }
+      setManualStatus(d.warning ? 'warn' : 'ok', d.warning ? `OK ${d.ticker} hozzaadva. ${d.warning}` : `OK ${d.ticker} sikeresen hozzaadva.`);
+      const resp = await apiFetch('/api/portfolio');
+      if (resp) portfolio = await resp.json();
+      renderTable();
+      await loadPrices();
+      renderTable();
+      calcTotals();
+      calcComposition();
+      loadRecent();
+      ['m-ticker','m-name','m-currency','m-exchange','m-purchase-date','m-purchase-price'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      document.getElementById('m-qty').value = '1';
+      const sourceEl = document.getElementById('m-purchase-source');
+      if (sourceEl) sourceEl.value = '';
+    } catch(e) {
+      setManualStatus('err', 'Halozati hiba - ellenorizd a szerver allapotat.');
+    }
+  };
+
+  async function fetchHistoricalForRow(i) {
+    const item = portfolio[i];
+    const dateEl = document.getElementById('purchase-date-' + i);
+    const priceEl = document.getElementById('purchase-price-' + i);
+    const sourceEl = document.getElementById('purchase-source-' + i);
+    const date = dateEl ? dateEl.value : '';
+    if (!item || !date) { alert('Adj meg veteli datumot.'); return; }
+    const r = await apiFetch('/api/price-history?ticker=' + encodeURIComponent(item.ticker) + '&date=' + encodeURIComponent(date));
+    if (!r) return;
+    const d = await r.json();
+    if (!d.ok) { alert(d.error || 'Historikus ar nem erheto el.'); return; }
+    if (priceEl) priceEl.value = d.price;
+    if (dateEl) dateEl.value = d.used_date || date;
+    if (sourceEl) sourceEl.value = 'historical';
+    await savePurchaseFields(i);
+  }
+
+  function setRowPurchaseSource(i, source) {
+    const sourceEl = document.getElementById('purchase-source-' + i);
+    const priceEl = document.getElementById('purchase-price-' + i);
+    if (sourceEl && priceEl && priceEl.value !== '') sourceEl.value = source;
+  }
+
+  async function savePurchaseFields(i) {
+    const item = portfolio[i];
+    if (!item || !item.id) return;
+    const priceEl = document.getElementById('purchase-price-' + i);
+    const dateEl = document.getElementById('purchase-date-' + i);
+    const sourceEl = document.getElementById('purchase-source-' + i);
+    const payload = {
+      purchase_price: priceEl && priceEl.value !== '' ? Number(priceEl.value) : null,
+      purchase_date: dateEl ? dateEl.value : null,
+      purchase_price_source: sourceEl ? sourceEl.value : null
+    };
+    const r = await apiFetch(`/api/portfolio/${item.id}`, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (!r) return;
+    const d = await r.json();
+    if (!d.ok) { appendBanner(d.error || 'Veteli adatok mentese nem sikerult.'); return; }
+    portfolio[i] = d.item || {...portfolio[i], ...payload};
+    renderTable();
+    calcTotals();
+  }
+
+  renderTable = function() {
+    const tbody = document.getElementById('stocks-tbody');
+    if (!portfolio.length) {
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#bbb;padding:24px">Meg nincs reszveny. Keress egyet fent!</td></tr>';
+      return;
+    }
+    tbody.innerHTML = portfolio.map((s, i) => {
+      const m = getPositionMetrics(s);
+      const p = m.p;
+      const currency = m.currency;
+      const tagCls = currency ? ('tag-' + currency.toLowerCase()) : 'tag-other';
+      const tag = currency ? `<span class="currency-tag ${tagCls}">${currency}</span>` : '';
+      const stale = p && p.stale === true;
+      const srcLabel = p ? (p.source || '').replace('Yahoo Finance', 'Yahoo').replace('/cache', ' (cache)') : '';
+      let priceStr = '-';
+      if (p && m.price != null) {
+        priceStr = m.price.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 4}) + ' ' + (currency || '')
+          + (stale ? ' <span class="warn-cell">(regi)</span>' : '')
+          + (srcLabel ? `<span class="src-badge">${srcLabel}</span>` : '');
+      } else if (p === undefined) {
+        priceStr = '<span class="loading-cell">-</span>';
+      } else {
+        priceStr = '<span class="error-cell">Arfolyam most nem erheto el</span>';
+      }
+      const currentStr = fmtMoney(m.currentValue, currency);
+      const hufStr = m.currentHuf != null ? fmtMoney(m.currentHuf, 'HUF') : (m.currentValue != null ? '<span class="warn-cell">? (devizaarfolyam hianyzik)</span>' : '-');
+      const investedStr = m.hasPurchase ? fmtMoney(m.investedValue, currency) : '<span class="metric-neutral">Nincs megadva bekerulesi ar</span>';
+      const plClass = m.profitLoss == null ? 'metric-neutral' : (m.profitLoss >= 0 ? 'metric-positive' : 'metric-negative');
+      const plStr = m.profitLoss == null ? '-' : fmtMoney(m.profitLoss, currency);
+      const retStr = m.returnPct == null ? '-' : m.returnPct.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
+      const itemId = s.id || null;
+      const purchasePriceVal = m.hasPurchase ? m.purchasePrice : '';
+      const purchaseDateVal = s.purchase_date || '';
+      const purchaseSourceVal = s.purchase_price_source || (m.hasPurchase ? 'manual' : '');
+      return `<tr>
+        <td><div class="ticker-badge">${s.ticker}${tag}</div><div class="stock-name">${s.name || ''}</div></td>
+        <td class="num"><div class="qty-cell">
+          <span class="qty-display" onclick="startEditQty(${i})" title="Kattints a modositasahoz">${s.qty}</span>
+          <input class="qty-edit" id="qty-edit-${i}" type="number" value="${s.qty}" min="0.001" step="any" onblur="saveQty(${i})" onkeydown="qtyKeydown(event,${i})">
+        </div></td>
+        <td class="num">${priceStr}</td>
+        <td class="num">${currentStr}</td>
+        <td class="num">${hufStr}</td>
+        <td class="num"><div class="purchase-inline">
+          <input id="purchase-price-${i}" type="number" min="0" step="any" value="${purchasePriceVal}" oninput="setRowPurchaseSource(${i}, 'manual')" onblur="savePurchaseFields(${i})" placeholder="nincs">
+          <input id="purchase-date-${i}" type="date" value="${purchaseDateVal}" onblur="savePurchaseFields(${i})">
+          <select id="purchase-source-${i}" onchange="savePurchaseFields(${i})">
+            <option value="" ${!purchaseSourceVal ? 'selected' : ''}>nincs</option>
+            <option value="current" ${purchaseSourceVal === 'current' ? 'selected' : ''}>aktualis</option>
+            <option value="historical" ${purchaseSourceVal === 'historical' ? 'selected' : ''}>historikus</option>
+            <option value="manual" ${purchaseSourceVal === 'manual' ? 'selected' : ''}>manualis</option>
+          </select>
+          <button class="btn-history" onclick="fetchHistoricalForRow(${i})">Datum ar</button>
+        </div></td>
+        <td class="num">${investedStr}</td>
+        <td class="num ${plClass}">${plStr}</td>
+        <td class="num ${plClass}">${retStr}</td>
+        <td><button class="btn-del" onclick="removeStock(${i},${itemId})" title="Torles">x</button></td>
+      </tr>`;
+    }).join('');
+    fillAlertTickerOptions();
+  };
+
+  calcTotals = function() {
+    let totalHUF = 0, totalInvestedHUF = 0, hasCurrent = false, hasInvested = false;
+    portfolio.forEach(s => {
+      const m = getPositionMetrics(s);
+      if (m.currentHuf != null) { totalHUF += m.currentHuf; hasCurrent = true; }
+      if (m.investedHuf != null) { totalInvestedHUF += m.investedHuf; hasInvested = true; }
+    });
+    if (hasCurrent) {
+      const totalUSD = fx['USD/HUF'] ? totalHUF / fx['USD/HUF'] : null;
+      const totalEUR = fx['EUR/HUF'] ? totalHUF / fx['EUR/HUF'] : null;
+      document.getElementById('total-huf').textContent = fmtMoney(Math.round(totalHUF), 'HUF');
+      document.getElementById('total-usd').textContent = totalUSD ? '$' + Math.round(totalUSD).toLocaleString('hu-HU') : '-';
+      document.getElementById('total-eur').textContent = totalEUR ? 'EUR ' + Math.round(totalEUR).toLocaleString('hu-HU') : '-';
+    }
+    document.getElementById('total-invested').textContent = hasInvested ? fmtMoney(Math.round(totalInvestedHUF), 'HUF') : '-';
+    const plEl = document.getElementById('total-pl');
+    const retEl = document.getElementById('total-return');
+    plEl.classList.remove('positive', 'negative');
+    retEl.classList.remove('positive', 'negative');
+    if (hasCurrent && hasInvested) {
+      const pl = totalHUF - totalInvestedHUF;
+      const ret = totalInvestedHUF > 0 ? (pl / totalInvestedHUF) * 100 : null;
+      plEl.textContent = fmtMoney(Math.round(pl), 'HUF');
+      if (ret != null) retEl.textContent = ret.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
+      const cls = pl >= 0 ? 'positive' : 'negative';
+      plEl.classList.add(cls);
+      retEl.classList.add(cls);
+    } else {
+      plEl.textContent = '-';
+      retEl.textContent = '-';
+    }
+  };
 </script>
 </body>
 </html>

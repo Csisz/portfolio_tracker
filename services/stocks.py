@@ -4,7 +4,7 @@ Részvényárfolyam lekérés – yfinance elsőként, Stooq fallback minden tő
 import csv
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 import yfinance as yf
@@ -108,6 +108,67 @@ def get_last_price(ticker: str) -> tuple[float | None, str | None, str, bool]:
         return stale_price, stale_currency, "stale", True
 
     return None, None, "none", False
+
+
+def get_historical_price(ticker: str, requested_date: str) -> dict:
+    """
+    Lekeri a megadott naphoz tartozo vagy az azt megelozo legkozelebbi zaroarat.
+    Visszateres JSON-kompatibilis dict, hogy az API kozvetlenul tovabbadhassa.
+    """
+    clean_ticker = str(ticker or "").strip().upper()
+    if not clean_ticker:
+        return {"ok": False, "error": "Ticker is required"}
+    try:
+        target = datetime.strptime(str(requested_date), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Invalid date"}
+
+    start = target - timedelta(days=14)
+    end = target + timedelta(days=1)
+    try:
+        t = yf.Ticker(clean_ticker)
+        hist = t.history(start=start.isoformat(), end=end.isoformat(), interval="1d")
+        if hist is None or hist.empty or "Close" not in hist:
+            return {"ok": False, "error": "Historical price is not available"}
+
+        close_rows = hist["Close"].dropna()
+        if close_rows.empty:
+            return {"ok": False, "error": "Historical price is not available"}
+
+        selected_date = None
+        selected_price = None
+        for idx, close in close_rows.items():
+            row_date = idx.date() if hasattr(idx, "date") else datetime.strptime(str(idx)[:10], "%Y-%m-%d").date()
+            if row_date <= target:
+                selected_date = row_date
+                selected_price = float(close)
+
+        if selected_price is None:
+            return {"ok": False, "error": "Historical price is not available"}
+
+        currency = None
+        try:
+            currency = getattr(t.fast_info, "currency", None)
+        except Exception:
+            pass
+        if not currency:
+            try:
+                currency = (t.info or {}).get("currency")
+            except Exception:
+                pass
+
+        return {
+            "ok": True,
+            "ticker": clean_ticker,
+            "requested_date": target.isoformat(),
+            "used_date": selected_date.isoformat(),
+            "price": round(selected_price, 4),
+            "currency": str(currency).upper() if currency else None,
+            "source": "Yahoo Finance",
+        }
+    except Exception as exc:
+        logger.warning("Historikus arfolyam lekeres hiba (%s, %s): %s", clean_ticker, requested_date, exc)
+        return {"ok": False, "error": "Historical price is not available"}
 
 
 def _fetch_price_yfinance(ticker: str) -> tuple[float | None, str | None]:

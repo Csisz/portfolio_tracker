@@ -115,6 +115,22 @@ def test_upsert_updates_existing():
     assert portfolio[0]["name"] == "Apple Inc."
 
 
+def test_upsert_stores_purchase_fields():
+    init_db("user1", "pass")
+    uid = get_user_by_username("user1")["id"]
+    saved = upsert_portfolio_item(uid, {
+        "ticker": "AAPL",
+        "name": "Apple",
+        "qty": 10,
+        "purchase_price": 150.5,
+        "purchase_date": "2024-01-15",
+        "purchase_price_source": "manual",
+    })
+    assert saved["purchase_price"] == 150.5
+    assert saved["purchase_date"] == "2024-01-15"
+    assert saved["purchase_price_source"] == "manual"
+
+
 def test_update_qty():
     init_db("user1", "pass")
     uid = get_user_by_username("user1")["id"]
@@ -156,6 +172,25 @@ def test_save_full_portfolio_replaces():
     tickers = {i["ticker"] for i in portfolio}
     assert tickers == {"AAPL", "MSFT"}
     assert "OLD" not in tickers
+
+
+def test_save_full_portfolio_keeps_purchase_fields():
+    init_db("user1", "pass")
+    uid = get_user_by_username("user1")["id"]
+    save_full_portfolio(uid, [
+        {
+            "ticker": "AAPL",
+            "name": "Apple",
+            "qty": 5,
+            "purchase_price": 120,
+            "purchase_date": "2023-12-20",
+            "purchase_price_source": "historical",
+        },
+    ])
+    item = get_portfolio(uid)[0]
+    assert item["purchase_price"] == 120.0
+    assert item["purchase_date"] == "2023-12-20"
+    assert item["purchase_price_source"] == "historical"
 
 
 # ===========================================================================

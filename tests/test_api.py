@@ -292,6 +292,78 @@ def test_portfolio_delete_by_id(client):
     assert len(portfolio_after) == 0
 
 
+def test_portfolio_save_purchase_fields(client):
+    items = [{
+        "ticker": "AAPL",
+        "name": "Apple",
+        "qty": 5,
+        "purchase_price": 150,
+        "purchase_date": "2024-01-15",
+        "purchase_price_source": "manual",
+    }]
+    r = client.post("/api/portfolio", json=items)
+    assert r.status_code == 200
+    saved = client.get("/api/portfolio").get_json()[0]
+    assert saved["purchase_price"] == 150.0
+    assert saved["purchase_date"] == "2024-01-15"
+    assert saved["purchase_price_source"] == "manual"
+
+
+def test_portfolio_patch_purchase_fields(client):
+    client.post("/api/portfolio", json=[{"ticker": "AAPL", "name": "Apple", "qty": 3}])
+    item_id = client.get("/api/portfolio").get_json()[0]["id"]
+    r = client.patch(f"/api/portfolio/{item_id}", json={
+        "purchase_price": 175.25,
+        "purchase_date": "2024-02-01",
+        "purchase_price_source": "historical",
+    })
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["ok"] is True
+    assert d["item"]["purchase_price"] == 175.25
+    saved = client.get("/api/portfolio").get_json()[0]
+    assert saved["purchase_price_source"] == "historical"
+
+
+def test_add_manual_accepts_purchase_price(client):
+    with patch("app.get_ticker_info", return_value={
+        "ticker": "AAPL",
+        "name": "Apple Inc.",
+        "currency": "USD",
+        "exchange": "NASDAQ",
+        "last_price": 200.0,
+    }):
+        r = client.post("/api/add_manual", json={
+            "ticker": "AAPL",
+            "qty": 2,
+            "purchase_price": 180,
+            "purchase_date": "2024-01-15",
+            "purchase_price_source": "manual",
+        })
+    assert r.status_code == 200
+    saved = client.get("/api/portfolio").get_json()[0]
+    assert saved["purchase_price"] == 180.0
+    assert saved["purchase_date"] == "2024-01-15"
+
+
+def test_price_history_endpoint(client):
+    with patch("app.get_historical_price", return_value={
+        "ok": True,
+        "ticker": "AAPL",
+        "requested_date": "2024-01-15",
+        "used_date": "2024-01-12",
+        "price": 185.5,
+        "currency": "USD",
+        "source": "Yahoo Finance",
+    }) as mock_history:
+        r = client.get("/api/price-history?ticker=AAPL&date=2024-01-15")
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["price"] == 185.5
+    assert d["used_date"] == "2024-01-12"
+    mock_history.assert_called_once_with("AAPL", "2024-01-15")
+
+
 # ===========================================================================
 # /api/export/xlsx – MIME type
 # ===========================================================================

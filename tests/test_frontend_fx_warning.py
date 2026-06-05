@@ -22,3 +22,10 @@ def test_mixed_currency_fx_missing_message_warns_about_incomplete_huf_total():
     html = _index_html()
     assert "function portfolioNeedsFx()" in html
     assert "Devizaárfolyam nem elérhető, ezért a HUF összesítés nem teljes." in html
+def test_purchase_profit_loss_ui_present():
+    html = _index_html()
+    assert "purchase_price" in html
+    assert "total-invested" in html
+    assert "total-pl" in html
+    assert "total-return" in html
+    assert "/api/price-history" in html
