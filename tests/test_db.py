@@ -131,34 +131,6 @@ def test_upsert_stores_purchase_fields():
     assert saved["purchase_price_source"] == "manual"
 
 
-def test_upsert_rejects_accidental_non_manual_one_for_purchase_price():
-    init_db("user1", "pass")
-    uid = get_user_by_username("user1")["id"]
-    saved = upsert_portfolio_item(uid, {
-        "ticker": "OTP.BD",
-        "name": "OTP",
-        "qty": 10,
-        "purchase_price": 1,
-        "purchase_price_source": "historical",
-    })
-    assert saved["purchase_price"] is None
-    assert saved["purchase_price_source"] is None
-
-
-def test_upsert_allows_manual_one_for_purchase_price():
-    init_db("user1", "pass")
-    uid = get_user_by_username("user1")["id"]
-    saved = upsert_portfolio_item(uid, {
-        "ticker": "MANUAL",
-        "name": "Manual",
-        "qty": 10,
-        "purchase_price": 1,
-        "purchase_price_source": "manual",
-    })
-    assert saved["purchase_price"] == 1.0
-    assert saved["purchase_price_source"] == "manual"
-
-
 def test_update_qty():
     init_db("user1", "pass")
     uid = get_user_by_username("user1")["id"]

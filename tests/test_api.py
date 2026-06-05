@@ -380,32 +380,6 @@ def test_export_xlsx_mime_type(client):
     assert "spreadsheetml" in r.content_type
 
 
-def test_export_xlsx_ignores_invalid_non_manual_purchase_price(client):
-    import io
-    from openpyxl import load_workbook
-
-    client.post("/api/portfolio", json=[{
-        "ticker": "OTP.BD",
-        "name": "OTP",
-        "qty": 3,
-        "purchase_price": 1,
-        "purchase_price_source": "historical",
-    }])
-    with patch("app.get_prices_for_tickers", return_value={
-        "prices": {"OTP.BD": {"price": 25000.0, "currency": "HUF", "source": "Yahoo Finance", "timestamp": "..."}},
-        "errors": [], "timestamp": "...", "source": "Yahoo Finance"
-    }), patch("app.get_fx_rates", return_value=_mnb_ok()):
-        r = client.get("/api/export/xlsx")
-
-    assert r.status_code == 200
-    wb = load_workbook(io.BytesIO(r.data), data_only=True)
-    ws = wb.active
-    assert ws.cell(1, 12).value == "Veteli ar"
-    assert ws.cell(2, 12).value is None
-    assert ws.cell(2, 15).value is None
-    assert ws.cell(2, 17).value is None
-
-
 def test_export_xlsx_empty_portfolio_400(client):
     r = client.get("/api/export/xlsx")
     assert r.status_code == 400

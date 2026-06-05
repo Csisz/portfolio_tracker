@@ -412,8 +412,6 @@ def api_add_manual():
     if purchase_price in (None, "") and info and info.get("last_price"):
         purchase_price = info.get("last_price")
         purchase_source = "current"
-        if not purchase_date:
-            purchase_date = datetime.now().date().isoformat()
     elif purchase_price not in (None, "") and not purchase_source:
         purchase_source = "manual"
 
@@ -762,19 +760,6 @@ def api_export_xlsx():
         rate = fx.get(f"{c}/HUF")
         return round(val * rate, 2) if rate else None
 
-    def valid_number(val):
-        try:
-            return val is not None and float(val) > 0
-        except (TypeError, ValueError):
-            return False
-
-    def valid_purchase_price(val, source):
-        if not valid_number(val):
-            return False
-        if (source or "").lower() != "manual" and float(val) <= 1:
-            return False
-        return True
-
     wb = Workbook()
     ws = wb.active
     ws.title = "Portfólió"
@@ -785,10 +770,6 @@ def api_export_xlsx():
         "Érték (saját deviza)", "Érték (HUF)", "Érték (EUR)", "Érték (USD)",
         "Árfolyam időpontja", "Elavult ár?", "Hozzáadás módja", "Export időpontja",
     ]
-    headers = headers[:11] + [
-        "Veteli ar", "Veteli datum", "Veteli ar forrasa",
-        "Befektetett ertek", "Nyereseg / veszteseg", "Hozam %",
-    ] + headers[11:]
     hdr_font = Font(bold=True, color="FFFFFF")
     hdr_fill = PatternFill("solid", fgColor="1A1A2E")
     ws.append(headers)
@@ -808,27 +789,16 @@ def api_export_xlsx():
         p = prices.get(ticker)
         price = p["price"] if p else (item.get("last_price"))
         currency = (p["currency"] if p else None) or item.get("currency") or ""
-        qty = item["qty"]
-        val_own = round(price * qty, 4) if valid_number(price) and valid_number(qty) else None
+        val_own = round(price * item["qty"], 4) if price is not None else None
         val_huf = to_huf(val_own, currency)
         val_eur = round(val_huf / fx["EUR/HUF"], 2) if val_huf and fx.get("EUR/HUF") else None
         val_usd = round(val_huf / fx["USD/HUF"], 2) if val_huf and fx.get("USD/HUF") else None
         if val_huf:
             total_huf += val_huf
-        purchase_source = item.get("purchase_price_source") or ""
-        purchase_price = item.get("purchase_price")
-        has_purchase = valid_purchase_price(purchase_price, purchase_source) and valid_number(qty)
-        invested_value = round(float(purchase_price) * float(qty), 4) if has_purchase else None
-        profit_loss = round(val_own - invested_value, 4) if val_own is not None and invested_value is not None else None
-        return_pct = round((profit_loss / invested_value) * 100, 4) if profit_loss is not None and invested_value and invested_value > 0 else None
         ws.append([
-            item.get("name", ticker), ticker, item.get("exchange", ""), qty,
+            item.get("name", ticker), ticker, item.get("exchange", ""), item["qty"],
             price, currency, (p or {}).get("source", "cache" if item.get("last_price") else ""),
             val_own, val_huf, val_eur, val_usd,
-            float(purchase_price) if has_purchase else None,
-            item.get("purchase_date") if has_purchase else "",
-            purchase_source if has_purchase else "",
-            invested_value, profit_loss, return_pct,
             (p or {}).get("timestamp", item.get("last_price_time", "")),
             "Igen" if (p or {}).get("stale") else "Nem",
             "kézi" if item.get("manually_added") else "keresés",
@@ -856,7 +826,7 @@ def api_export_xlsx():
     ws.append(["Forrás (deviza)", fx_result.get("source", "")])
     ws.append(["Devizaarfolyam idopontja", fx_result.get("timestamp", "")])
 
-    col_widths = [22, 12, 12, 8, 16, 8, 18, 18, 18, 14, 14, 14, 14, 18, 18, 18, 12, 20, 10, 14, 18]
+    col_widths = [22, 12, 12, 8, 16, 8, 18, 18, 18, 14, 14, 20, 10, 14, 18]
     for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
