@@ -8,6 +8,7 @@ import pytest
 from unittest.mock import patch
 
 import services.db as db_module
+from services.settings_store import invalidate_cache, save_setting
 import app as flask_app
 
 
@@ -310,3 +311,62 @@ def test_export_xlsx_mime_type(client):
 def test_export_xlsx_empty_portfolio_400(client):
     r = client.get("/api/export/xlsx")
     assert r.status_code == 400
+
+
+# ===========================================================================
+# /api/alerts
+# ===========================================================================
+
+def test_alert_check_disabled_does_not_send_email(client):
+    save_setting("alerts_enabled", "false")
+    invalidate_cache()
+    with patch("app.send_email") as mock_send:
+        r = client.post("/api/alerts/check")
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["ok"] is True
+    assert d["alerts_enabled"] is False
+    assert d["message"] == "Email alerts are disabled"
+    mock_send.assert_not_called()
+
+
+def test_alert_create_disabled_is_blocked(client):
+    save_setting("alerts_enabled", "false")
+    invalidate_cache()
+    r = client.post("/api/alerts", json={
+        "alert_type": "portfolio_value_above",
+        "threshold": 100000,
+        "currency": "HUF",
+        "email_to": "test@example.com",
+    })
+    assert r.status_code == 403
+    assert r.get_json()["alerts_enabled"] is False
+
+
+def test_alert_check_enabled_can_send_email(client):
+    save_setting("alerts_enabled", "true")
+    invalidate_cache()
+    alert = {
+        "id": 123,
+        "alert_type": "portfolio_value_above",
+        "ticker": None,
+        "threshold": 100,
+        "percent": None,
+        "currency": "HUF",
+        "email_to": "test@example.com",
+        "cooldown_minutes": 60,
+        "last_value": None,
+        "last_triggered_at": None,
+    }
+    with patch("app.get_alerts", return_value=[alert]), \
+         patch("app.get_portfolio", return_value=[{"ticker": "AAPL", "qty": 1, "currency": "HUF"}]), \
+         patch("app.get_prices_for_tickers", return_value={"prices": {"AAPL": {"price": 200, "currency": "HUF"}}}), \
+         patch("app.get_fx_rates", return_value={"fx": {}}), \
+         patch("app.update_alert_state", return_value=True), \
+         patch("app.send_email", return_value=(True, "Email elküldve.")) as mock_send:
+        r = client.post("/api/alerts/check")
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["alerts_enabled"] is True
+    assert len(d["triggered"]) == 1
+    mock_send.assert_called_once()

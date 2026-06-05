@@ -6,6 +6,39 @@
 
 <div class="card">
   <form method="post">
+    {% set auto_refresh = settings_map.get('auto_refresh_seconds', {'value': '300'}) %}
+    {% set alerts = settings_map.get('alerts_enabled', {'value': 'false'}) %}
+
+    <h2 style="font-size:16px;margin-bottom:12px;color:#1a1a2e">Automatikus frissítés</h2>
+    <div style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(180px,260px);gap:14px;align-items:center;margin-bottom:22px">
+      <div>
+        <div style="font-weight:600;font-size:13px;color:#374151">Automatikus frissítés gyakorisága</div>
+        <div class="text-muted" style="font-size:12px;margin-top:3px">A főoldal a kiválasztott időközönként automatikusan frissíti az árfolyamokat és összesítőket.</div>
+      </div>
+      <select name="setting_auto_refresh_seconds" class="form-select" style="padding:7px 9px;font-size:13px">
+        <option value="0" {{ 'selected' if auto_refresh.value == '0' else '' }}>kikapcsolva</option>
+        <option value="60" {{ 'selected' if auto_refresh.value == '60' else '' }}>1 perc</option>
+        <option value="300" {{ 'selected' if auto_refresh.value == '300' else '' }}>5 perc</option>
+        <option value="900" {{ 'selected' if auto_refresh.value == '900' else '' }}>15 perc</option>
+        <option value="1800" {{ 'selected' if auto_refresh.value == '1800' else '' }}>30 perc</option>
+        <option value="3600" {{ 'selected' if auto_refresh.value == '3600' else '' }}>60 perc</option>
+      </select>
+    </div>
+
+    <h2 style="font-size:16px;margin-bottom:12px;color:#1a1a2e">Email riasztások</h2>
+    <div style="display:grid;grid-template-columns:minmax(220px,1fr) minmax(180px,260px);gap:14px;align-items:center;margin-bottom:22px">
+      <div>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;color:#374151">
+          <input type="checkbox" name="setting_alerts_enabled" value="true" {{ 'checked' if alerts.value == 'true' else '' }}>
+          Email riasztások engedélyezése
+        </label>
+        {% if alerts.value != 'true' %}
+          <div class="text-muted" style="font-size:12px;margin-top:7px">Az email riasztások jelenleg ki vannak kapcsolva. Bekapcsolás után lehet riasztásokat létrehozni és email értesítéseket küldeni.</div>
+        {% endif %}
+      </div>
+      <div class="text-muted" style="font-size:12px">Kikapcsolva a főoldali alert blokk rejtve marad, és a háttérben sem küldünk emailt.</div>
+    </div>
+
     <table>
       <thead>
         <tr>
@@ -18,6 +51,7 @@
       </thead>
       <tbody>
         {% for s in settings %}
+        {% if s.key not in ['auto_refresh_seconds', 'alerts_enabled'] %}
         <tr>
           <td><code style="font-size:12px;color:#1a1a2e">{{ s.key }}</code></td>
           <td class="text-muted">{{ s.description or '–' }}</td>
@@ -41,6 +75,7 @@
           <td class="text-muted">{{ s.value_type }}</td>
           <td class="text-muted">{{ (s.updated_at or '–')[:16] }}</td>
         </tr>
+        {% endif %}
         {% endfor %}
       </tbody>
     </table>

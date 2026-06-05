@@ -243,15 +243,7 @@
   <!-- Automatikus frissítés -->
   <div class="auto-refresh-panel">
     <div class="auto-refresh-left">
-      <span class="mini-label">⏱ Automatikus frissítés:</span>
-      <select class="mini-select" id="refresh-interval" onchange="setRefreshInterval(this.value)">
-        <option value="0">Kikapcsolva</option>
-        <option value="60">1 percenként</option>
-        <option value="300">5 percenként</option>
-        <option value="900">15 percenként</option>
-        <option value="1800">30 percenként</option>
-        <option value="3600">60 percenként</option>
-      </select>
+      <span class="mini-label">⏱ Automatikus frissítés</span>
     </div>
     <div class="refresh-status" id="refresh-status">–</div>
   </div>
@@ -338,8 +330,9 @@
     </div>
   </div>
 
+  {% if alerts_enabled %}
   <!-- Riasztások -->
-  <div class="alerts-panel">
+  <div class="alerts-panel" id="alerts-panel">
     <div class="alerts-title">
       <span>🔔 Email riasztások</span>
       <button class="btn-alert-secondary" onclick="checkAlerts(true)">Ellenőrzés most</button>
@@ -407,6 +400,7 @@
     <div class="alert-status" id="alert-status"></div>
     <div class="alert-list" id="alert-list"></div>
   </div>
+  {% endif %}
 
   <!-- Portfólió táblázat -->
   <div class="section-header">
@@ -463,6 +457,7 @@
   let autoRefreshSeconds = defaultAutoRefreshSeconds;
   let autoRefreshTimer = null;
   let refreshInProgress = false;
+  let alertsEnabled = {{ alerts_enabled | tojson }};
   let alerts = [];
 
   // ========== 401 kezelés (session lejárt) ==========
@@ -477,29 +472,17 @@
     renderTable();
     loadRecent();
     initAutoRefreshControls();
-    updateAlertFormVisibility();
-    loadAlerts();
+    if (alertsEnabled) {
+      updateAlertFormVisibility();
+      loadAlerts();
+    }
     refreshAll();
   };
 
   // ========== AUTOMATIKUS FRISSÍTÉS ==========
   function initAutoRefreshControls() {
-    const saved = localStorage.getItem('portfolioAutoRefreshSeconds');
-    autoRefreshSeconds = saved !== null ? Number(saved) : defaultAutoRefreshSeconds;
+    autoRefreshSeconds = defaultAutoRefreshSeconds;
     if (!Number.isFinite(autoRefreshSeconds) || autoRefreshSeconds < 0) autoRefreshSeconds = 300;
-    const select = document.getElementById('refresh-interval');
-    if (select) {
-      const values = [...select.options].map(o => o.value);
-      select.value = values.includes(String(autoRefreshSeconds)) ? String(autoRefreshSeconds) : '300';
-      autoRefreshSeconds = Number(select.value);
-    }
-    setupAutoRefresh();
-    updateAutoRefreshStatus();
-  }
-
-  function setRefreshInterval(value) {
-    autoRefreshSeconds = Number(value) || 0;
-    localStorage.setItem('portfolioAutoRefreshSeconds', String(autoRefreshSeconds));
     setupAutoRefresh();
     updateAutoRefreshStatus();
   }
@@ -518,10 +501,10 @@
     const el = document.getElementById('refresh-status');
     if (!el) return;
     if (autoRefreshSeconds <= 0) {
-      el.textContent = 'Automatikus frissítés kikapcsolva.';
+      el.textContent = 'Automatikus frissítés: kikapcsolva';
     } else {
       const min = autoRefreshSeconds >= 60 ? Math.round(autoRefreshSeconds / 60) + ' perc' : autoRefreshSeconds + ' mp';
-      el.textContent = 'Az oldal automatikusan frissül: ' + min + 'enként.';
+      el.textContent = 'Automatikus frissítés: ' + min + 'enként';
     }
   }
 
@@ -698,7 +681,7 @@
       calcTotals();
       calcComposition();
       updateSourceInfo();
-      await checkAlerts(false);
+      if (alertsEnabled) await checkAlerts(false);
       const now = new Date();
       document.getElementById('update-info').textContent =
         'Frissítve: ' + now.toLocaleTimeString('hu-HU', {hour:'2-digit', minute:'2-digit'});

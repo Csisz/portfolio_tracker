@@ -17,8 +17,8 @@ DEFAULTS: dict[str, tuple[str, str, str]] = {
     "app_name":               ("Portfólió Követő", "string",  "Alkalmazás neve"),
     "default_currency":       ("HUF",              "string",  "Alapértelmezett deviza"),
     "price_cache_minutes":    ("15",               "int",     "Részvényárfolyam cache ideje (perc)"),
-    "auto_refresh_seconds":   ("300",              "int",     "Főoldali automatikus frissítés alapértelmezett ideje (másodperc; 0 = kikapcsolva)"),
-    "alerts_enabled":         ("true",             "bool",    "Email riasztások engedélyezése"),
+    "auto_refresh_seconds":   ("300",              "int",     "Automatikus frissítés gyakorisága"),
+    "alerts_enabled":         ("false",            "bool",    "Email riasztások engedélyezése"),
     "alert_cooldown_minutes": ("60",               "int",     "Riasztások alapértelmezett újraküldési várakozása (perc)"),
     "search_cache_minutes":   ("60",               "int",     "Keresési cache ideje (perc)"),
     "fx_cache_hours":         ("24",               "int",     "Devizaárfolyam cache ideje (óra)"),
@@ -71,6 +71,18 @@ def get_int(key: str) -> int:
         if key in DEFAULTS:
             return int(DEFAULTS[key][0])
         return 0
+
+
+def get_setting_bool(key: str, default: bool = False) -> bool:
+    fallback = "true" if default else "false"
+    return str(get_setting(key, fallback)).lower() in ("true", "1", "yes")
+
+
+def get_setting_int(key: str, default: int = 0) -> int:
+    try:
+        return int(get_setting(key, str(default)))
+    except (ValueError, TypeError):
+        return default
 
 
 def save_setting(key: str, value: str) -> bool:

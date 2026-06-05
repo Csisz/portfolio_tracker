@@ -269,6 +269,9 @@ def test_settings_defaults():
     assert get_bool("enable_yahoo") is True
     assert get_bool("enable_mnb") is True
     assert get_bool("maintenance_mode") is False
+    assert get_bool("alerts_enabled") is False
+    assert get_int("auto_refresh_seconds") == 300
+    assert get_int("alert_cooldown_minutes") == 60
     assert get_int("price_cache_minutes") == 15
 
 
@@ -302,6 +305,9 @@ def test_all_defaults_are_present():
     assert "enable_stooq" in DEFAULTS
     assert "enable_mnb" in DEFAULTS
     assert "fx_rate_mode" in DEFAULTS
+    assert "alerts_enabled" in DEFAULTS
+    assert "auto_refresh_seconds" in DEFAULTS
+    assert "alert_cooldown_minutes" in DEFAULTS
     assert "excel_export_enabled" in DEFAULTS
     assert "maintenance_mode" in DEFAULTS
     assert "price_cache_minutes" in DEFAULTS
@@ -323,6 +329,53 @@ def test_admin_settings_save(admin_client):
     assert r.status_code == 200
     invalidate_cache()
     assert get_setting("app_name") == "Módosított Név"
+
+
+def test_admin_settings_saves_alerts_and_auto_refresh(admin_client):
+    init_default_settings()
+    r = admin_client.post("/admin/settings", data={
+        "setting_auto_refresh_seconds": "900",
+        "setting_alerts_enabled": "true",
+        "setting_alert_cooldown_minutes": "180",
+    }, follow_redirects=True)
+    assert r.status_code == 200
+    invalidate_cache()
+    assert get_bool("alerts_enabled") is True
+    assert get_int("auto_refresh_seconds") == 900
+    assert get_int("alert_cooldown_minutes") == 180
+
+
+def test_admin_settings_saves_alerts_disabled_when_checkbox_missing(admin_client):
+    init_default_settings()
+    save_setting("alerts_enabled", "true")
+    invalidate_cache()
+    r = admin_client.post("/admin/settings", data={
+        "setting_auto_refresh_seconds": "0",
+    }, follow_redirects=True)
+    assert r.status_code == 200
+    invalidate_cache()
+    assert get_bool("alerts_enabled") is False
+    assert get_int("auto_refresh_seconds") == 0
+
+
+def test_main_page_hides_alerts_when_disabled(admin_client):
+    save_setting("alerts_enabled", "false")
+    invalidate_cache()
+    r = admin_client.get("/")
+    html = r.data.decode("utf-8")
+    assert 'id="alerts-panel"' not in html
+    assert 'id="alert-email"' not in html
+    assert "refresh-interval" not in html
+    assert "refresh-status" in html
+
+
+def test_main_page_shows_alerts_when_enabled(admin_client):
+    save_setting("alerts_enabled", "true")
+    invalidate_cache()
+    r = admin_client.get("/")
+    html = r.data.decode("utf-8")
+    assert 'id="alerts-panel"' in html
+    assert 'id="alert-email"' in html
 
 
 # ===========================================================================

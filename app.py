@@ -38,6 +38,7 @@ from services.db import (create_alert, create_user, delete_alert,
 from services.fx import get_fx_rates
 from services.settings_store import (get_all_settings_with_defaults,
                                       get_bool, get_int, get_setting,
+                                      get_setting_bool, get_setting_int,
                                       init_default_settings, save_setting)
 from services.stocks import get_prices_for_tickers, get_ticker_info
 from services.emailer import send_email, smtp_configured
@@ -213,7 +214,8 @@ def index():
     return render_template(
         "index.html",
         portfolio=portfolio,
-        auto_refresh_seconds=get_int("auto_refresh_seconds"),
+        auto_refresh_seconds=get_setting_int("auto_refresh_seconds", 300),
+        alerts_enabled=get_setting_bool("alerts_enabled", False),
         username=current_username(),
         role=current_role(),
     )
@@ -432,20 +434,21 @@ ALERT_LABELS = {
 @app.route("/api/alerts", methods=["GET", "POST"])
 @login_required
 def api_alerts():
+    alerts_enabled = get_setting_bool("alerts_enabled", False)
     if request.method == "GET":
         return jsonify({
-            "alerts": get_alerts(current_user_id()),
+            "alerts": get_alerts(current_user_id()) if alerts_enabled else [],
             "smtp_configured": smtp_configured(),
-            "alerts_enabled": get_bool("alerts_enabled"),
-            "default_cooldown_minutes": get_int("alert_cooldown_minutes") or 60,
+            "alerts_enabled": alerts_enabled,
+            "default_cooldown_minutes": get_setting_int("alert_cooldown_minutes", 60) or 60,
         })
 
-    if not get_bool("alerts_enabled"):
-        return jsonify({"ok": False, "error": "A riasztások jelenleg ki vannak kapcsolva."}), 403
+    if not alerts_enabled:
+        return jsonify({"ok": False, "alerts_enabled": False, "error": "Email alerts are disabled"}), 403
 
     data = request.get_json(silent=True) or {}
     if not data.get("cooldown_minutes"):
-        data["cooldown_minutes"] = get_int("alert_cooldown_minutes") or 60
+        data["cooldown_minutes"] = get_setting_int("alert_cooldown_minutes", 60) or 60
     try:
         alert = create_alert(current_user_id(), data)
         log_event(current_user_id(), "alert_create", f"type={alert.get('alert_type')} ticker={alert.get('ticker') or '-'}", _client_ip())
@@ -457,6 +460,8 @@ def api_alerts():
 @app.route("/api/alerts/<int:alert_id>", methods=["DELETE"])
 @login_required
 def api_alert_delete(alert_id: int):
+    if not get_setting_bool("alerts_enabled", False):
+        return jsonify({"ok": False, "alerts_enabled": False, "error": "Email alerts are disabled"}), 403
     ok = delete_alert(current_user_id(), alert_id)
     if ok:
         log_event(current_user_id(), "alert_delete", f"id={alert_id}", _client_ip())
@@ -466,6 +471,8 @@ def api_alert_delete(alert_id: int):
 @app.route("/api/alerts/<int:alert_id>/toggle", methods=["POST"])
 @login_required
 def api_alert_toggle(alert_id: int):
+    if not get_setting_bool("alerts_enabled", False):
+        return jsonify({"ok": False, "alerts_enabled": False, "error": "Email alerts are disabled"}), 403
     data = request.get_json(silent=True) or {}
     active = bool(data.get("active"))
     ok = set_alert_active(current_user_id(), alert_id, active)
@@ -477,8 +484,8 @@ def api_alert_toggle(alert_id: int):
 @app.route("/api/alerts/check", methods=["POST"])
 @login_required
 def api_alert_check():
-    if not get_bool("alerts_enabled"):
-        return jsonify({"ok": True, "checked": 0, "triggered": [], "warnings": ["A riasztások ki vannak kapcsolva."]})
+    if not get_setting_bool("alerts_enabled", False):
+        return jsonify({"ok": True, "alerts_enabled": False, "message": "Email alerts are disabled"})
 
     uid = current_user_id()
     alerts = get_alerts(uid, active_only=True)
@@ -495,6 +502,7 @@ def api_alert_check():
     triggered, warnings = _evaluate_alerts(uid, alerts, portfolio, prices, fx)
     return jsonify({
         "ok": True,
+        "alerts_enabled": True,
         "checked": len(alerts),
         "triggered": triggered,
         "warnings": warnings,
@@ -899,13 +907,18 @@ def admin_settings():
             if key.startswith("setting_"):
                 setting_key = key[len("setting_"):]
                 value = request.form[key].strip()
+                if setting_key == "auto_refresh_seconds" and value not in {"0", "60", "300", "900", "1800", "3600"}:
+                    value = "300"
                 save_setting(setting_key, value)
+        if "setting_alerts_enabled" not in request.form:
+            save_setting("alerts_enabled", "false")
         log_event(current_user_id(), "settings_update", "", _client_ip())
         flash("Beállítások mentve.", "success")
         return redirect(url_for("admin_settings"))
 
     settings = get_all_settings_with_defaults()
-    return render_template("admin/settings.html", settings=settings,
+    settings_map = {s["key"]: s for s in settings}
+    return render_template("admin/settings.html", settings=settings, settings_map=settings_map,
                            username=current_username(), role=current_role())
 
 
