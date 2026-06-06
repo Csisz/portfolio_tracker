@@ -15,6 +15,21 @@ logger = logging.getLogger(__name__)
 
 PRICE_CACHE_TTL = 600   # 10 perc
 PRICE_CACHE_PREFIX = "price:"
+_HU_TICKER_ALIASES = {
+    "OTP": "OTP.BD",
+    "MOL": "MOL.BD",
+    "RICHTER": "RICHTER.BD",
+    "MTELEKOM": "MTELEKOM.BD",
+    "4IG": "4IG.BD",
+    "OPUS": "OPUS.BD",
+    "ANY": "ANY.BD",
+}
+
+
+def normalize_ticker(ticker: str) -> str:
+    """Canonical display ticker used for storage, lookup and cache keys."""
+    t = str(ticker or "").strip().upper()
+    return _HU_TICKER_ALIASES.get(t, t)
 
 # ---------------------------------------------------------------------------
 # Stooq ticker mapping – minden tőzsde
@@ -42,7 +57,7 @@ def _to_stooq(ticker: str) -> tuple[str, str] | tuple[None, None]:
     US részvénynél (nincs pont) aapl → aapl.us, USD devizával.
     Visszaad (None, None)-t, ha nem ismert a tőzsde.
     """
-    t = ticker.strip().upper()
+    t = normalize_ticker(ticker)
 
     for suffix, (stooq_ext, currency) in _SUFFIX_MAP.items():
         if t.endswith(suffix):
@@ -59,7 +74,7 @@ def _to_stooq(ticker: str) -> tuple[str, str] | tuple[None, None]:
 
 def _bd_to_stooq(ticker: str) -> str | None:
     """Backward compat: csak .BD tickereket kezel. Új kód _to_stooq()-t használjon."""
-    t = ticker.strip().upper()
+    t = normalize_ticker(ticker)
     if t.endswith(".BD"):
         return t[:-3].lower() + ".hu"
     return None
@@ -81,7 +96,8 @@ def get_last_price(ticker: str) -> tuple[float | None, str | None, str, bool]:
     D) Stooq fallback (minden ismert tőzsdére)
     E) symbols cache last_price (stale=True)
     """
-    key = PRICE_CACHE_PREFIX + ticker.upper()
+    clean_ticker = normalize_ticker(ticker)
+    key = PRICE_CACHE_PREFIX + clean_ticker
 
     # A) Memory cache
     cached = cache.get(key)
@@ -89,13 +105,13 @@ def get_last_price(ticker: str) -> tuple[float | None, str | None, str, bool]:
         return cached["price"], cached["currency"], "Yahoo Finance/cache", False
 
     # B+C) yfinance
-    price, currency = _fetch_price_yfinance(ticker)
+    price, currency = _fetch_price_yfinance(clean_ticker)
     if price is not None:
         cache.set(key, {"price": price, "currency": currency}, PRICE_CACHE_TTL)
         return price, currency, "Yahoo Finance", False
 
     # D) Stooq fallback – minden tőzsdére
-    stooq_sym, stooq_currency = _to_stooq(ticker)
+    stooq_sym, stooq_currency = _to_stooq(clean_ticker)
     if stooq_sym:
         price, currency = _fetch_price_stooq(stooq_sym, stooq_currency)
         if price is not None:
@@ -103,7 +119,7 @@ def get_last_price(ticker: str) -> tuple[float | None, str | None, str, bool]:
             return price, currency, "Stooq", False
 
     # E) Stale ár a symbols cache-ből
-    stale_price, stale_currency = _get_stale_price(ticker)
+    stale_price, stale_currency = _get_stale_price(clean_ticker)
     if stale_price is not None:
         return stale_price, stale_currency, "stale", True
 
@@ -115,7 +131,7 @@ def get_historical_price(ticker: str, requested_date: str) -> dict:
     Lekeri a megadott naphoz tartozo vagy az azt megelozo legkozelebbi zaroarat.
     Visszateres JSON-kompatibilis dict, hogy az API kozvetlenul tovabbadhassa.
     """
-    clean_ticker = str(ticker or "").strip().upper()
+    clean_ticker = normalize_ticker(ticker)
     if not clean_ticker:
         return {"ok": False, "error": "Ticker is required"}
     try:
@@ -218,11 +234,24 @@ def _fetch_price_stooq(stooq_symbol: str, expected_currency: str = None) -> tupl
 
 def _get_stale_price(ticker: str) -> tuple[float | None, str | None]:
     """Utolsó ismert ár a symbols_cache-ből (stale fallback)."""
+    normalized = normalize_ticker(ticker)
+    try:
+        from services import db
+        symbols = db.search_symbols_db(normalized)
+        sym = next(
+            (s for s in symbols if normalize_ticker(s.get("ticker", "")) == normalized),
+            None,
+        )
+        if sym and sym.get("last_price"):
+            return float(sym["last_price"]), sym.get("last_price_currency") or sym.get("currency")
+    except Exception:
+        pass
+
     try:
         from services.symbol_resolver import get_cached_symbols
         symbols = get_cached_symbols()
         sym = next(
-            (s for s in symbols if s.get("ticker", "").upper() == ticker.upper()),
+            (s for s in symbols if normalize_ticker(s.get("ticker", "")) == normalized),
             None,
         )
         if sym and sym.get("last_price"):
@@ -243,6 +272,8 @@ def get_prices_for_tickers(tickers: list[str]) -> dict:
     any_cached = False
 
     for ticker in tickers:
+        original_ticker = str(ticker or "").strip().upper()
+        response_ticker = original_ticker or normalize_ticker(ticker)
         try:
             price, currency, source, stale = get_last_price(ticker)
             if price is not None:
@@ -254,20 +285,20 @@ def get_prices_for_tickers(tickers: list[str]) -> dict:
                 }
                 if stale:
                     entry["stale"] = True
-                prices[ticker] = entry
+                prices[response_ticker] = entry
 
                 if stale or "cache" in source:
                     any_cached = True
                 else:
                     any_live = True
             else:
-                errors.append({"ticker": ticker, "message": "Árfolyam most nem elérhető."})
+                errors.append({"ticker": response_ticker, "message": "Árfolyam most nem elérhető."})
         except Exception as e:
             msg = str(e)
             if "Too Many Requests" in msg or "429" in msg or "rate limit" in msg.lower():
                 msg = "Yahoo Finance rate limit – kérlek várj néhány percet."
-            logger.error("Árfolyam lekérés hiba %s: %s", ticker, e)
-            errors.append({"ticker": ticker, "message": msg})
+            logger.error("Árfolyam lekérés hiba %s: %s", response_ticker, e)
+            errors.append({"ticker": response_ticker, "message": msg})
 
     if any_live and any_cached:
         overall_source = "Yahoo Finance/részleges cache"
@@ -289,6 +320,7 @@ def get_prices_for_tickers(tickers: list[str]) -> dict:
 def get_ticker_info(ticker: str) -> dict | None:
     """Lekéri egy ticker alapadatait validáláshoz (kézi hozzáadásnál)."""
     try:
+        ticker = normalize_ticker(ticker)
         t = yf.Ticker(ticker)
         fi = t.fast_info
         price = getattr(fi, "last_price", None)

@@ -1,0 +1,21 @@
+{
+  "mode": "market",
+  "fx": {
+    "USD/HUF": 308.3,
+    "EUR/HUF": 355.03,
+    "GBP/HUF": 411.31,
+    "CHF/HUF": 387.17,
+    "JPY/HUF": 1.9232,
+    "HUF/EUR": 0.00281666,
+    "HUF/USD": 0.00324359,
+    "USD/EUR": 0.868377,
+    "EUR/USD": 1.151573,
+    "GBP/EUR": 1.158522
+  },
+  "errors": [],
+  "source": "Yahoo Finance FX",
+  "timestamp": "2026-06-06T10:16:04",
+  "date": "2026-06-06",
+  "rate_date": null,
+  "_modes": {
+    "market": 

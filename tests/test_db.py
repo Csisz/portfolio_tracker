@@ -8,7 +8,8 @@ import pytest
 import services.db as db_module
 from services.db import (
     init_db, get_user_by_username, verify_password,
-    get_portfolio, upsert_portfolio_item, update_portfolio_qty,
+    get_portfolio, insert_portfolio_item, upsert_portfolio_item, update_portfolio_qty,
+    update_portfolio_item_by_id, update_portfolio_qty_by_id,
     delete_portfolio_item, delete_portfolio_item_by_id,
     save_full_portfolio, upsert_symbol_cache, get_all_symbols,
 )
@@ -129,6 +130,58 @@ def test_upsert_stores_purchase_fields():
     assert saved["purchase_price"] == 150.5
     assert saved["purchase_date"] == "2024-01-15"
     assert saved["purchase_price_source"] == "manual"
+
+
+def test_insert_allows_duplicate_ticker_lots():
+    init_db("user1", "pass")
+    uid = get_user_by_username("user1")["id"]
+    first = insert_portfolio_item(uid, {
+        "ticker": "OTP.BD",
+        "name": "OTP",
+        "qty": 1,
+        "purchase_price": 40250,
+    })
+    second = insert_portfolio_item(uid, {
+        "ticker": "OTP.BD",
+        "name": "OTP",
+        "qty": 1,
+        "purchase_price": 40600,
+    })
+    portfolio = get_portfolio(uid)
+    assert first["id"] != second["id"]
+    assert len(portfolio) == 2
+    assert [item["purchase_price"] for item in portfolio] == [40250.0, 40600.0]
+
+
+def test_id_based_updates_only_one_duplicate_ticker_lot():
+    init_db("user1", "pass")
+    uid = get_user_by_username("user1")["id"]
+    first = insert_portfolio_item(uid, {
+        "ticker": "OTP.BD",
+        "name": "OTP",
+        "qty": 1,
+        "purchase_price": 40250,
+    })
+    second = insert_portfolio_item(uid, {
+        "ticker": "OTP.BD",
+        "name": "OTP",
+        "qty": 1,
+        "purchase_price": 40600,
+    })
+    assert update_portfolio_qty_by_id(uid, second["id"], 3)
+    updated = dict(second)
+    updated["qty"] = 3
+    updated["purchase_price"] = 40700
+    saved = update_portfolio_item_by_id(uid, second["id"], updated)
+    assert saved["purchase_price"] == 40700.0
+
+    portfolio = get_portfolio(uid)
+    assert portfolio[0]["id"] == first["id"]
+    assert portfolio[0]["qty"] == 1.0
+    assert portfolio[0]["purchase_price"] == 40250.0
+    assert portfolio[1]["id"] == second["id"]
+    assert portfolio[1]["qty"] == 3.0
+    assert portfolio[1]["purchase_price"] == 40700.0
 
 
 def test_update_qty():

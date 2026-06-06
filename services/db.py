@@ -114,8 +114,7 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     last_price_time     TEXT,
     purchase_price      REAL,
     purchase_date       TEXT,
-    purchase_price_source TEXT,
-    UNIQUE(user_id, ticker)
+    purchase_price_source TEXT
 );
 
 CREATE TABLE IF NOT EXISTS symbols_cache (
@@ -209,8 +208,7 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     last_price_time     TEXT,
     purchase_price      REAL,
     purchase_date       TEXT,
-    purchase_price_source TEXT,
-    UNIQUE(user_id, ticker)
+    purchase_price_source TEXT
 );
 
 CREATE TABLE IF NOT EXISTS symbols_cache (
@@ -370,6 +368,76 @@ def _apply_migrations(conn):
         except Exception:
             conn.rollback()
 
+    if _is_postgres():
+        for sql in [
+            "ALTER TABLE portfolio_items DROP CONSTRAINT IF EXISTS portfolio_items_user_id_ticker_key",
+            "DROP INDEX IF EXISTS portfolio_items_user_id_ticker_key",
+            "DROP INDEX IF EXISTS ix_portfolio_items_user_id_ticker",
+        ]:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+    else:
+        _drop_sqlite_portfolio_unique_constraint(conn)
+
+
+def _drop_sqlite_portfolio_unique_constraint(conn):
+    """SQLite nem tud constraintet droppolni, ezért csak szükség esetén újraépítjük a táblát."""
+    try:
+        indexes = conn.execute(text("PRAGMA index_list(portfolio_items)")).fetchall()
+        has_unique = False
+        for idx in indexes:
+            idx_name = idx[1]
+            is_unique = bool(idx[2])
+            if not is_unique:
+                continue
+            cols = [r[2] for r in conn.execute(text(f"PRAGMA index_info({idx_name})")).fetchall()]
+            if cols == ["user_id", "ticker"]:
+                has_unique = True
+                break
+        if not has_unique:
+            return
+
+        conn.execute(text("ALTER TABLE portfolio_items RENAME TO portfolio_items_old"))
+        conn.execute(text("""
+            CREATE TABLE portfolio_items (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id             INTEGER NOT NULL,
+                ticker              TEXT NOT NULL,
+                name                TEXT NOT NULL DEFAULT '',
+                qty                 REAL NOT NULL DEFAULT 0,
+                currency            TEXT,
+                exchange            TEXT DEFAULT '',
+                source              TEXT DEFAULT 'unknown',
+                manually_added      INTEGER DEFAULT 0,
+                created_at          TEXT,
+                updated_at          TEXT,
+                last_price          REAL,
+                last_price_currency TEXT,
+                last_price_source   TEXT,
+                last_price_time     TEXT,
+                purchase_price      REAL,
+                purchase_date       TEXT,
+                purchase_price_source TEXT
+            )
+        """))
+        conn.execute(text("""
+            INSERT INTO portfolio_items
+            (id, user_id, ticker, name, qty, currency, exchange, source, manually_added,
+             created_at, updated_at, last_price, last_price_currency, last_price_source,
+             last_price_time, purchase_price, purchase_date, purchase_price_source)
+            SELECT id, user_id, ticker, name, qty, currency, exchange, source, manually_added,
+                   created_at, updated_at, last_price, last_price_currency, last_price_source,
+                   last_price_time, purchase_price, purchase_date, purchase_price_source
+            FROM portfolio_items_old
+        """))
+        conn.execute(text("DROP TABLE portfolio_items_old"))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
 
 def init_db(admin_username: str = None, admin_password: str = None):
     """
@@ -470,7 +538,6 @@ def _migrate_portfolio_json():
                     conn.execute(text("""
                         INSERT INTO portfolio_items (user_id, ticker, name, qty, currency, exchange, source, manually_added, created_at, updated_at)
                         VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :ts, :ts)
-                        ON CONFLICT (user_id, ticker) DO NOTHING
                     """), {
                         "uid": user_id, "t": ticker,
                         "n": str(item.get("name") or ticker),
@@ -641,8 +708,12 @@ def _purchase_fields(item: dict) -> dict:
         source = None
     purchase_price = _float_or_none(item.get("purchase_price"))
     purchase_date = str(item.get("purchase_date") or "").strip() or None
+    if purchase_price is not None and purchase_price <= 0:
+        purchase_price = None
     if purchase_price is not None and not source:
         source = "manual"
+    if purchase_price is None:
+        source = None
     return {
         "pp": purchase_price,
         "pd": purchase_date,
@@ -659,6 +730,34 @@ def get_portfolio(user_id: int) -> list[dict]:
         return [_row(r) for r in rows]
 
 
+def insert_portfolio_item(user_id: int, item: dict) -> dict:
+    ticker = str(item.get("ticker", "")).strip().upper()
+    now = _now()
+    purchase = _purchase_fields(item)
+    with _conn() as conn:
+        conn.execute(text("""
+            INSERT INTO portfolio_items
+            (user_id, ticker, name, qty, currency, exchange, source, manually_added,
+             purchase_price, purchase_date, purchase_price_source, created_at, updated_at)
+            VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pps, :ts, :ts)
+        """), {
+            "uid": user_id, "t": ticker,
+            "n": str(item.get("name") or ticker),
+            "q": float(item.get("qty", 0)),
+            "c": str(item.get("currency") or "") or None,
+            "e": str(item.get("exchange") or ""),
+            "s": str(item.get("source") or "unknown"),
+            "m": int(bool(item.get("manually_added", False))),
+            **purchase,
+            "ts": now,
+        })
+        row = conn.execute(
+            text("SELECT * FROM portfolio_items WHERE user_id=:uid ORDER BY id DESC LIMIT 1"),
+            {"uid": user_id},
+        ).fetchone()
+        return _row(row)
+
+
 def upsert_portfolio_item(user_id: int, item: dict) -> dict:
     ticker = str(item.get("ticker", "")).strip().upper()
     now = _now()
@@ -671,13 +770,14 @@ def upsert_portfolio_item(user_id: int, item: dict) -> dict:
         ).fetchone()
 
         if existing:
+            existing_id = existing[0]
             conn.execute(text("""
                 UPDATE portfolio_items SET
                     name=:n, qty=:q, currency=:c, exchange=:e,
                     source=:s, manually_added=:m,
                     purchase_price=:pp, purchase_date=:pd, purchase_price_source=:pps,
                     updated_at=:ts
-                WHERE user_id=:uid AND ticker=:t
+                WHERE user_id=:uid AND id=:id
             """), {
                 "n": str(item.get("name") or ticker),
                 "q": float(item.get("qty", 0)),
@@ -686,7 +786,7 @@ def upsert_portfolio_item(user_id: int, item: dict) -> dict:
                 "s": str(item.get("source") or "unknown"),
                 "m": int(bool(item.get("manually_added", False))),
                 **purchase,
-                "ts": now, "uid": user_id, "t": ticker,
+                "ts": now, "uid": user_id, "id": existing_id,
             })
         else:
             conn.execute(text("""
@@ -707,7 +807,7 @@ def upsert_portfolio_item(user_id: int, item: dict) -> dict:
             })
 
         row = conn.execute(
-            text("SELECT * FROM portfolio_items WHERE user_id=:uid AND ticker=:t"),
+            text("SELECT * FROM portfolio_items WHERE user_id=:uid AND ticker=:t ORDER BY id LIMIT 1"),
             {"uid": user_id, "t": ticker},
         ).fetchone()
         return _row(row)
@@ -721,6 +821,44 @@ def update_portfolio_qty(user_id: int, ticker: str, qty: float) -> bool:
             {"q": qty, "ts": _now(), "uid": user_id, "t": ticker},
         )
         return cur.rowcount > 0
+
+
+def update_portfolio_qty_by_id(user_id: int, item_id: int, qty: float) -> bool:
+    with _conn() as conn:
+        cur = conn.execute(
+            text("UPDATE portfolio_items SET qty=:q, updated_at=:ts WHERE user_id=:uid AND id=:id"),
+            {"q": qty, "ts": _now(), "uid": user_id, "id": item_id},
+        )
+        return cur.rowcount > 0
+
+
+def update_portfolio_item_by_id(user_id: int, item_id: int, item: dict) -> Optional[dict]:
+    purchase = _purchase_fields(item)
+    with _conn() as conn:
+        cur = conn.execute(text("""
+            UPDATE portfolio_items SET
+                name=:n, qty=:q, currency=:c, exchange=:e,
+                source=:s, manually_added=:m,
+                purchase_price=:pp, purchase_date=:pd, purchase_price_source=:pps,
+                updated_at=:ts
+            WHERE user_id=:uid AND id=:id
+        """), {
+            "n": str(item.get("name") or item.get("ticker") or ""),
+            "q": float(item.get("qty", 0)),
+            "c": str(item.get("currency") or "") or None,
+            "e": str(item.get("exchange") or ""),
+            "s": str(item.get("source") or "unknown"),
+            "m": int(bool(item.get("manually_added", False))),
+            **purchase,
+            "ts": _now(), "uid": user_id, "id": item_id,
+        })
+        if cur.rowcount <= 0:
+            return None
+        row = conn.execute(
+            text("SELECT * FROM portfolio_items WHERE user_id=:uid AND id=:id"),
+            {"uid": user_id, "id": item_id},
+        ).fetchone()
+        return _row(row)
 
 
 def delete_portfolio_item(user_id: int, ticker: str) -> bool:

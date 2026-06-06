@@ -254,6 +254,31 @@ def test_prices_no_crash_on_error(client):
     assert r.status_code == 200
 
 
+def test_prices_uses_portfolio_last_price_cache_before_error(client):
+    client.post("/api/portfolio", json=[{
+        "ticker": "OTP.BD",
+        "name": "OTP Bank",
+        "qty": 1,
+        "currency": "HUF",
+    }])
+    uid = db_module.get_user_by_username("admin")["id"]
+    db_module.update_item_last_price(uid, "OTP.BD", 40850.0, "HUF", "Stooq", "2026-06-05T10:00:00")
+
+    with patch("app.get_prices_for_tickers", return_value={
+        "prices": {},
+        "errors": [{"ticker": "OTP.BD", "message": "Árfolyam most nem elérhető."}],
+        "timestamp": "2026-06-05T10:01:00",
+        "source": "none",
+    }):
+        r = client.post("/api/prices", json={"tickers": ["OTP.BD"]})
+
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["errors"] == []
+    assert d["prices"]["OTP.BD"]["price"] == 40850.0
+    assert d["prices"]["OTP.BD"]["stale"] is True
+
+
 # ===========================================================================
 # /api/portfolio
 # ===========================================================================
@@ -344,6 +369,268 @@ def test_add_manual_accepts_purchase_price(client):
     saved = client.get("/api/portfolio").get_json()[0]
     assert saved["purchase_price"] == 180.0
     assert saved["purchase_date"] == "2024-01-15"
+
+
+def test_add_manual_same_ticker_creates_separate_lots(client):
+    with patch("app.get_ticker_info", return_value=None):
+        r1 = client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+            "purchase_price": 40250,
+        })
+        r2 = client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+            "purchase_price": 40600,
+        })
+
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    d2 = r2.get_json()
+    assert "merged" not in d2
+    assert d2["message"] == "Új vételi tétel hozzáadva."
+
+    portfolio = client.get("/api/portfolio").get_json()
+    assert len(portfolio) == 2
+    assert [item["ticker"] for item in portfolio] == ["OTP.BD", "OTP.BD"]
+    assert [item["qty"] for item in portfolio] == [1.0, 1.0]
+    assert [item["purchase_price"] for item in portfolio] == [40250.0, 40600.0]
+
+
+def test_add_manual_mol_same_ticker_creates_separate_lots(client):
+    with patch("app.get_ticker_info", return_value=None):
+        client.post("/api/add_manual", json={
+            "ticker": "MOL.BD",
+            "qty": 2,
+            "purchase_price": 3000,
+        })
+        r = client.post("/api/add_manual", json={
+            "ticker": "MOL",
+            "qty": 1,
+            "purchase_price": 3300,
+        })
+
+    assert r.status_code == 200
+    portfolio = client.get("/api/portfolio").get_json()
+    assert len(portfolio) == 2
+    assert [item["ticker"] for item in portfolio] == ["MOL.BD", "MOL.BD"]
+    assert [item["qty"] for item in portfolio] == [2.0, 1.0]
+    assert [item["purchase_price"] for item in portfolio] == [3000.0, 3300.0]
+
+
+def test_add_manual_new_ticker_still_creates_new_row(client):
+    with patch("app.get_ticker_info", return_value=None):
+        client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+            "purchase_price": 40250,
+        })
+        client.post("/api/add_manual", json={
+            "ticker": "MOL.BD",
+            "qty": 1,
+            "purchase_price": 3000,
+        })
+
+    portfolio = client.get("/api/portfolio").get_json()
+    assert {item["ticker"] for item in portfolio} == {"OTP.BD", "MOL.BD"}
+
+
+def test_add_manual_existing_without_purchase_price_still_creates_new_lot(client):
+    client.post("/api/portfolio", json=[{
+        "ticker": "OTP.BD",
+        "name": "OTP Bank",
+        "qty": 1,
+    }])
+
+    with patch("app.get_ticker_info", return_value=None):
+        r = client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+            "purchase_price": 40600,
+        })
+
+    assert r.status_code == 200
+    portfolio = client.get("/api/portfolio").get_json()
+    assert len(portfolio) == 2
+    assert portfolio[0]["qty"] == 1.0
+    assert portfolio[0]["purchase_price"] is None
+    assert portfolio[1]["qty"] == 1.0
+    assert portfolio[1]["purchase_price"] == 40600.0
+
+
+def test_portfolio_patch_duplicate_ticker_updates_only_selected_lot(client):
+    with patch("app.get_ticker_info", return_value=None):
+        client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+            "purchase_price": 40250,
+        })
+        client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+            "purchase_price": 40600,
+        })
+    portfolio = client.get("/api/portfolio").get_json()
+    second_id = portfolio[1]["id"]
+
+    r_qty = client.put(f"/api/portfolio/{second_id}", json={"qty": 3})
+    r_price = client.patch(f"/api/portfolio/{second_id}", json={"purchase_price": 40700})
+
+    assert r_qty.status_code == 200
+    assert r_price.status_code == 200
+    updated = client.get("/api/portfolio").get_json()
+    assert updated[0]["qty"] == 1.0
+    assert updated[0]["purchase_price"] == 40250.0
+    assert updated[1]["qty"] == 3.0
+    assert updated[1]["purchase_price"] == 40700.0
+
+
+def test_portfolio_delete_duplicate_ticker_removes_only_selected_lot(client):
+    with patch("app.get_ticker_info", return_value=None):
+        client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+            "purchase_price": 40250,
+        })
+        client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+            "purchase_price": 40600,
+        })
+    portfolio = client.get("/api/portfolio").get_json()
+    first_id = portfolio[0]["id"]
+
+    r = client.delete(f"/api/portfolio/{first_id}")
+
+    assert r.status_code == 200
+    remaining = client.get("/api/portfolio").get_json()
+    assert len(remaining) == 1
+    assert remaining[0]["ticker"] == "OTP.BD"
+    assert remaining[0]["purchase_price"] == 40600.0
+
+
+def test_add_manual_defaults_purchase_price_to_current_price(client):
+    with patch("app.get_ticker_info", return_value=None), \
+         patch("app.get_prices_for_tickers", return_value={
+             "prices": {"OTP.BD": {
+                 "price": 40850.0,
+                 "currency": "HUF",
+                 "source": "Stooq",
+                 "timestamp": "2026-06-05T10:00:00",
+             }},
+             "errors": [],
+             "timestamp": "2026-06-05T10:00:00",
+             "source": "Stooq",
+         }):
+        r = client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+        })
+
+    assert r.status_code == 200
+    saved = client.get("/api/portfolio").get_json()[0]
+    assert saved["purchase_price"] == 40850.0
+
+
+def test_add_manual_normalizes_otp_and_uses_price_service(client):
+    with patch("app.get_ticker_info", return_value=None), \
+         patch("app.get_prices_for_tickers", return_value={
+             "prices": {"OTP.BD": {
+                 "price": 40850.0,
+                 "currency": "HUF",
+                 "source": "Stooq",
+                 "timestamp": "2026-06-05T10:00:00",
+             }},
+             "errors": [],
+             "timestamp": "2026-06-05T10:00:00",
+             "source": "Stooq",
+         }) as mock_prices:
+        r = client.post("/api/add_manual", json={
+            "ticker": "OTP",
+            "qty": 1,
+        })
+
+    assert r.status_code == 200
+    mock_prices.assert_called_once_with(["OTP.BD"])
+    saved = client.get("/api/portfolio").get_json()[0]
+    assert saved["ticker"] == "OTP.BD"
+    assert saved["purchase_price"] == 40850.0
+
+
+def test_add_manual_allows_missing_price_without_fake_purchase_price(client):
+    with patch("app.get_ticker_info", return_value=None), \
+         patch("app.get_prices_for_tickers", return_value={
+             "prices": {},
+             "errors": [{"ticker": "MOL.BD", "message": "Árfolyam most nem elérhető."}],
+             "timestamp": "2026-06-05T10:00:00",
+             "source": "none",
+         }):
+        r = client.post("/api/add_manual", json={
+            "ticker": "MOL.BD",
+            "qty": 3,
+        })
+
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["ok"] is True
+    assert "vételi árat kézzel" in data["warning"]
+    saved = client.get("/api/portfolio").get_json()[0]
+    assert saved["ticker"] == "MOL.BD"
+    assert saved["purchase_price"] is None
+
+
+def test_add_manual_uses_cached_price_from_price_service(client):
+    with patch("app.get_ticker_info", return_value=None), \
+         patch("app.get_prices_for_tickers", return_value={
+             "prices": {"MOL.BD": {
+                 "price": 3100.0,
+                 "currency": "HUF",
+                 "source": "stale",
+                 "timestamp": "2026-06-05T10:00:00",
+                 "stale": True,
+             }},
+             "errors": [],
+             "timestamp": "2026-06-05T10:00:00",
+             "source": "Yahoo Finance/cache",
+         }):
+        r = client.post("/api/add_manual", json={
+            "ticker": "MOL.BD",
+            "qty": 3,
+        })
+
+    assert r.status_code == 200
+    data = r.get_json()
+    assert "warning" not in data
+    saved = client.get("/api/portfolio").get_json()[0]
+    assert saved["purchase_price"] == 3100.0
+
+
+def test_add_manual_keeps_metadata_from_ticker_info_with_price_service(client):
+    with patch("app.get_ticker_info", return_value={
+        "ticker": "OTP.BD",
+        "name": "OTP Bank",
+        "currency": "HUF",
+        "exchange": "BUD",
+    }), patch("app.get_prices_for_tickers", return_value={
+        "prices": {"OTP.BD": {
+            "price": 40850.0,
+            "currency": "HUF",
+            "source": "Stooq",
+            "timestamp": "2026-06-05T10:00:00",
+        }},
+        "errors": [],
+        "timestamp": "2026-06-05T10:00:00",
+        "source": "Stooq",
+    }):
+        r = client.post("/api/add_manual", json={
+            "ticker": "OTP.BD",
+            "qty": 1,
+        })
+
+    assert r.status_code == 200
+    saved = client.get("/api/portfolio").get_json()[0]
+    assert saved["name"] == "OTP Bank"
+    assert saved["purchase_price"] == 40850.0
 
 
 def test_price_history_endpoint(client):

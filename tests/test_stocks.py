@@ -8,7 +8,10 @@ import csv
 import io
 from unittest.mock import patch, MagicMock
 
-from services.stocks import _bd_to_stooq, _to_stooq, _fetch_price_stooq, get_historical_price, get_last_price, get_prices_for_tickers
+from services.stocks import (
+    _bd_to_stooq, _to_stooq, _fetch_price_stooq, get_historical_price,
+    get_last_price, get_prices_for_tickers, normalize_ticker,
+)
 
 
 # ===========================================================================
@@ -17,6 +20,13 @@ from services.stocks import _bd_to_stooq, _to_stooq, _fetch_price_stooq, get_his
 
 def test_stooq_mapping_otp():
     assert _bd_to_stooq("OTP.BD") == "otp.hu"
+
+
+def test_normalize_hungarian_blue_chips():
+    assert normalize_ticker("OTP") == "OTP.BD"
+    assert normalize_ticker("otp") == "OTP.BD"
+    assert normalize_ticker("MOL") == "MOL.BD"
+    assert normalize_ticker("MOL.BD") == "MOL.BD"
 
 
 def test_stooq_mapping_mol():
@@ -109,6 +119,21 @@ def test_get_last_price_falls_back_to_stooq_on_yahoo_fail():
     assert price == 26000.0
     assert currency == "HUF"
     assert source == "Stooq"
+
+
+def test_get_last_price_normalizes_bare_hungarian_ticker():
+    from services import cache as svc_cache
+    svc_cache.delete("price:OTP.BD")
+
+    with patch("services.stocks._fetch_price_yfinance", return_value=(None, None)), \
+         patch("services.stocks._fetch_price_stooq", return_value=(26000.0, "HUF")) as mock_stooq:
+        price, currency, source, stale = get_last_price("OTP")
+
+    mock_stooq.assert_called_once_with("otp.hu", "HUF")
+    assert price == 26000.0
+    assert currency == "HUF"
+    assert source == "Stooq"
+    assert stale is False
     assert stale is False
 
 

@@ -29,18 +29,21 @@ from services import symbol_resolver
 from services.db import (create_alert, create_user, delete_alert,
                           delete_portfolio_item_by_id, get_alerts,
                           get_all_users, get_audit_logs, get_portfolio,
-                          get_stats, get_user_by_id, init_db, log_event,
+                          get_stats, get_user_by_id, init_db, insert_portfolio_item,
+                          log_event,
                           save_full_portfolio, set_alert_active,
                           set_user_password, update_alert_state,
-                          upsert_portfolio_item, upsert_symbol_cache,
+                          update_portfolio_item_by_id,
+                          upsert_symbol_cache,
                           update_item_last_price, update_last_login,
-                          update_portfolio_qty, update_user, verify_password)
+                          update_portfolio_qty_by_id,
+                          update_user, verify_password)
 from services.fx import get_fx_rates
 from services.settings_store import (get_all_settings_with_defaults,
                                       get_bool, get_int, get_setting,
                                       get_setting_bool, get_setting_int,
                                       init_default_settings, save_setting)
-from services.stocks import get_historical_price, get_prices_for_tickers, get_ticker_info
+from services.stocks import get_historical_price, get_prices_for_tickers, get_ticker_info, normalize_ticker
 from services.emailer import send_email, smtp_configured
 
 # ---------------------------------------------------------------------------
@@ -249,12 +252,62 @@ def api_prices():
 
     uid = current_user_id()
     now = _ts()
+    portfolio_by_ticker = {}
+    try:
+        portfolio_by_ticker = {
+            normalize_ticker(item.get("ticker", "")): item
+            for item in get_portfolio(uid)
+        }
+    except Exception:
+        portfolio_by_ticker = {}
+
+    prices = result.setdefault("prices", {})
+    for requested_ticker in tickers:
+        response_ticker = str(requested_ticker or "").strip().upper()
+        if response_ticker in prices:
+            continue
+        cached_item = portfolio_by_ticker.get(normalize_ticker(response_ticker))
+        if cached_item and cached_item.get("last_price"):
+            prices[response_ticker] = {
+                "price": cached_item.get("last_price"),
+                "currency": cached_item.get("last_price_currency") or cached_item.get("currency"),
+                "source": cached_item.get("last_price_source") or "stale",
+                "timestamp": cached_item.get("last_price_time") or now,
+                "stale": True,
+            }
+
+    if result.get("errors"):
+        price_keys = {normalize_ticker(t) for t in prices.keys()}
+        result["errors"] = [
+            err for err in result.get("errors", [])
+            if normalize_ticker(err.get("ticker") if isinstance(err, dict) else err) not in price_keys
+        ]
+
     for ticker, pdata in result.get("prices", {}).items():
         if not pdata.get("stale"):
             try:
                 update_item_last_price(uid, ticker, pdata["price"], pdata["currency"], pdata["source"], pdata.get("timestamp", now))
             except Exception:
                 pass
+        try:
+            existing_symbols = db.search_symbols_db(ticker)
+            existing_symbol = next(
+                (s for s in existing_symbols if normalize_ticker(s.get("ticker", "")) == normalize_ticker(ticker)),
+                {},
+            )
+            upsert_symbol_cache({
+                "ticker": ticker,
+                "name": existing_symbol.get("name") or ticker,
+                "currency": pdata.get("currency"),
+                "exchange": existing_symbol.get("exchange") or "",
+                "source": pdata.get("source"),
+                "query_aliases": existing_symbol.get("query_aliases") or [ticker.lower()],
+                "last_price": pdata.get("price"),
+                "last_price_currency": pdata.get("currency"),
+                "last_price_time": pdata.get("timestamp", now),
+            })
+        except Exception:
+            pass
 
     return jsonify(result)
 
@@ -327,7 +380,9 @@ def api_portfolio_update(item_id: int):
         if "purchase_price_source" in data:
             updated["purchase_price_source"] = str(data.get("purchase_price_source") or "").strip() or None
 
-        saved = upsert_portfolio_item(current_user_id(), updated)
+        saved = update_portfolio_item_by_id(current_user_id(), item_id, updated)
+        if not saved:
+            return jsonify({"ok": False, "error": "Elem nem talalhato"}), 404
         log_event(current_user_id(), "portfolio_purchase_update",
                   f"ticker={item['ticker']}", _client_ip())
         return jsonify({"ok": True, "item": saved})
@@ -345,7 +400,7 @@ def api_portfolio_update(item_id: int):
     if not item:
         return jsonify({"ok": False, "error": "Elem nem található"}), 404
 
-    ok = update_portfolio_qty(current_user_id(), item["ticker"], qty)
+    ok = update_portfolio_qty_by_id(current_user_id(), item_id, qty)
     if ok:
         log_event(current_user_id(), "portfolio_qty_update",
                   f"ticker={item['ticker']} qty={qty}", _client_ip())
@@ -371,7 +426,7 @@ def api_search(query):
 @login_required
 def api_add_manual():
     data = request.get_json(silent=True) or {}
-    ticker = str(data.get("ticker", "")).strip().upper()
+    ticker = normalize_ticker(data.get("ticker", ""))
     name = str(data.get("name", "")).strip() or ticker
     qty_raw = data.get("qty", 1)
 
@@ -403,19 +458,37 @@ def api_add_manual():
     except Exception as e:
         logger.warning("Kézi ticker validálás hiba %s: %s", ticker, e)
 
-    if not validated:
-        validation_warning = "Ticker most nem ellenőrizhető, de elmentve. Árfolyam később próbálható."
-
     purchase_price = data.get("purchase_price")
     purchase_date = str(data.get("purchase_date") or "").strip() or None
     purchase_source = str(data.get("purchase_price_source") or "").strip().lower() or None
-    if purchase_price in (None, "") and info and info.get("last_price"):
+    price_info = None
+    if purchase_price in (None, ""):
+        try:
+            price_result = get_prices_for_tickers([ticker])
+            price_info = (price_result.get("prices") or {}).get(ticker)
+        except Exception as exc:
+            logger.warning("Hozzáadási árfolyam fallback hiba %s: %s", ticker, exc)
+
+    if price_info and price_info.get("price") is not None:
+        validated = True
+        if not currency:
+            currency = price_info.get("currency")
+        purchase_price = price_info.get("price")
+        purchase_source = "current"
+    elif purchase_price in (None, "") and info and info.get("last_price"):
         purchase_price = info.get("last_price")
         purchase_source = "current"
     elif purchase_price not in (None, "") and not purchase_source:
         purchase_source = "manual"
 
-    saved = upsert_portfolio_item(current_user_id(), {
+    if not validated:
+        validation_warning = (
+            "Az árfolyam most nem elérhető. A részvény hozzáadható, "
+            "a vételi árat kézzel is megadhatod."
+        )
+
+    uid = current_user_id()
+    saved = insert_portfolio_item(uid, {
         "ticker": ticker, "name": name, "qty": qty,
         "currency": currency, "exchange": exchange,
         "source": "manual", "manually_added": True,
@@ -428,13 +501,14 @@ def api_add_manual():
         "ticker": ticker, "name": name, "currency": currency,
         "exchange": exchange, "source": "manual",
         "query_aliases": [ticker.lower(), name.lower()],
-        "last_price": info.get("last_price") if info else None,
-        "last_price_time": _ts() if info else None,
+        "last_price": (price_info or {}).get("price") or (info.get("last_price") if info else None),
+        "last_price_currency": (price_info or {}).get("currency") or currency,
+        "last_price_time": (price_info or {}).get("timestamp") or (_ts() if info else None),
     }
     upsert_symbol_cache(sym)
     symbol_resolver.upsert_symbol(sym)
 
-    log_event(current_user_id(), "portfolio_add",
+    log_event(uid, "portfolio_add",
               f"ticker={ticker} qty={qty} manual=true", _client_ip())
 
     resp = {
@@ -442,6 +516,7 @@ def api_add_manual():
         "currency": currency, "exchange": exchange,
         "validated": validated, "id": saved.get("id"),
         "item": saved,
+        "message": "Új vételi tétel hozzáadva.",
     }
     if validation_warning:
         resp["warning"] = validation_warning

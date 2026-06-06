@@ -28,4 +28,13 @@ def test_purchase_profit_loss_ui_present():
     assert "total-invested" in html
     assert "total-pl" in html
     assert "total-return" in html
-    assert "/api/price-history" in html
+    assert "Veteli ar" in html
+    assert "Atlagos veteli ar" not in html
+    assert "/api/price-history" not in html
+    assert "purchase_date" not in html
+    assert "purchase_price_source" not in html
+    assert "purchase-date" not in html
+    assert "purchase-source" not in html
+    assert "fetchHistorical" not in html
+    assert "historikus" not in html.lower()
+    assert "btn-history" not in html
