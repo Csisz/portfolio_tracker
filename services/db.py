@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     purchase_price      REAL,
     purchase_date       TEXT,
     purchase_cost       REAL,
+    display_order       INTEGER,
     purchase_price_source TEXT
 );
 
@@ -210,6 +211,7 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     purchase_price      REAL,
     purchase_date       TEXT,
     purchase_cost       REAL,
+    display_order       INTEGER,
     purchase_price_source TEXT
 );
 
@@ -358,6 +360,7 @@ def _apply_migrations(conn):
         "ALTER TABLE portfolio_items ADD COLUMN purchase_price REAL",
         "ALTER TABLE portfolio_items ADD COLUMN purchase_date TEXT",
         "ALTER TABLE portfolio_items ADD COLUMN purchase_cost REAL",
+        "ALTER TABLE portfolio_items ADD COLUMN display_order INTEGER",
         "ALTER TABLE portfolio_items ADD COLUMN purchase_price_source TEXT",
         "ALTER TABLE alerts ADD COLUMN email_to TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE alerts ADD COLUMN cooldown_minutes INTEGER NOT NULL DEFAULT 60",
@@ -384,6 +387,36 @@ def _apply_migrations(conn):
                 conn.rollback()
     else:
         _drop_sqlite_portfolio_unique_constraint(conn)
+    _backfill_display_order(conn)
+
+
+def _backfill_display_order(conn):
+    """Meglevő soroknak stabil sorrendet ad userenkent, ha meg nincs."""
+    try:
+        max_rows = conn.execute(text("""
+            SELECT user_id, MAX(display_order) AS max_order
+            FROM portfolio_items
+            WHERE display_order IS NOT NULL
+            GROUP BY user_id
+        """)).fetchall()
+        counters = {row[0]: int(row[1]) + 1 for row in max_rows if row[1] is not None}
+        rows = conn.execute(text("""
+            SELECT id, user_id
+            FROM portfolio_items
+            WHERE display_order IS NULL
+            ORDER BY user_id, created_at ASC, id ASC
+        """)).fetchall()
+        for row in rows:
+            item_id, user_id = row[0], row[1]
+            order = counters.get(user_id, 0)
+            conn.execute(
+                text("UPDATE portfolio_items SET display_order=:ord WHERE id=:id"),
+                {"ord": order, "id": item_id},
+            )
+            counters[user_id] = order + 1
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
 
 def _drop_sqlite_portfolio_unique_constraint(conn):
@@ -424,6 +457,7 @@ def _drop_sqlite_portfolio_unique_constraint(conn):
                 purchase_price      REAL,
                 purchase_date       TEXT,
                 purchase_cost       REAL,
+                display_order       INTEGER,
                 purchase_price_source TEXT
             )
         """))
@@ -431,10 +465,10 @@ def _drop_sqlite_portfolio_unique_constraint(conn):
             INSERT INTO portfolio_items
             (id, user_id, ticker, name, qty, currency, exchange, source, manually_added,
              created_at, updated_at, last_price, last_price_currency, last_price_source,
-             last_price_time, purchase_price, purchase_date, purchase_cost, purchase_price_source)
+             last_price_time, purchase_price, purchase_date, purchase_cost, display_order, purchase_price_source)
             SELECT id, user_id, ticker, name, qty, currency, exchange, source, manually_added,
                    created_at, updated_at, last_price, last_price_currency, last_price_source,
-                   last_price_time, purchase_price, purchase_date, purchase_cost, purchase_price_source
+                   last_price_time, purchase_price, purchase_date, purchase_cost, display_order, purchase_price_source
             FROM portfolio_items_old
         """))
         conn.execute(text("DROP TABLE portfolio_items_old"))
@@ -540,8 +574,8 @@ def _migrate_portfolio_json():
             try:
                 if _is_postgres():
                     conn.execute(text("""
-                        INSERT INTO portfolio_items (user_id, ticker, name, qty, currency, exchange, source, manually_added, created_at, updated_at)
-                        VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :ts, :ts)
+                        INSERT INTO portfolio_items (user_id, ticker, name, qty, currency, exchange, source, manually_added, display_order, created_at, updated_at)
+                        VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :ord, :ts, :ts)
                     """), {
                         "uid": user_id, "t": ticker,
                         "n": str(item.get("name") or ticker),
@@ -550,12 +584,13 @@ def _migrate_portfolio_json():
                         "e": str(item.get("exchange") or ""),
                         "s": str(item.get("source") or "imported"),
                         "m": int(bool(item.get("manually_added", False))),
+                        "ord": imported,
                         "ts": now,
                     })
                 else:
                     conn.execute(text("""
-                        INSERT OR IGNORE INTO portfolio_items (user_id, ticker, name, qty, currency, exchange, source, manually_added, created_at, updated_at)
-                        VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :ts, :ts)
+                        INSERT OR IGNORE INTO portfolio_items (user_id, ticker, name, qty, currency, exchange, source, manually_added, display_order, created_at, updated_at)
+                        VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :ord, :ts, :ts)
                     """), {
                         "uid": user_id, "t": ticker,
                         "n": str(item.get("name") or ticker),
@@ -564,6 +599,7 @@ def _migrate_portfolio_json():
                         "e": str(item.get("exchange") or ""),
                         "s": str(item.get("source") or "imported"),
                         "m": int(bool(item.get("manually_added", False))),
+                        "ord": imported,
                         "ts": now,
                     })
                 imported += 1
@@ -706,6 +742,23 @@ def _float_or_none(value):
         return None
 
 
+def _int_or_none(value):
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _next_display_order(conn, user_id: int) -> int:
+    row = conn.execute(
+        text("SELECT COALESCE(MAX(display_order), -1) + 1 FROM portfolio_items WHERE user_id=:uid"),
+        {"uid": user_id},
+    ).fetchone()
+    return int(row[0] or 0)
+
+
 def _purchase_fields(item: dict) -> dict:
     source = str(item.get("purchase_price_source") or "").strip().lower()
     if source not in _PURCHASE_PRICE_SOURCES:
@@ -736,6 +789,8 @@ def get_portfolio(user_id: int) -> list[dict]:
                 SELECT * FROM portfolio_items
                 WHERE user_id = :uid
                 ORDER BY
+                    CASE WHEN display_order IS NULL THEN 1 ELSE 0 END,
+                    display_order ASC,
                     CASE WHEN purchase_date IS NULL OR purchase_date = '' THEN 1 ELSE 0 END,
                     purchase_date ASC,
                     created_at ASC,
@@ -751,11 +806,14 @@ def insert_portfolio_item(user_id: int, item: dict) -> dict:
     now = _now()
     purchase = _purchase_fields(item)
     with _conn() as conn:
+        display_order = _int_or_none(item.get("display_order"))
+        if display_order is None:
+            display_order = _next_display_order(conn, user_id)
         conn.execute(text("""
             INSERT INTO portfolio_items
             (user_id, ticker, name, qty, currency, exchange, source, manually_added,
-             purchase_price, purchase_date, purchase_cost, purchase_price_source, created_at, updated_at)
-            VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pc, :pps, :ts, :ts)
+             purchase_price, purchase_date, purchase_cost, display_order, purchase_price_source, created_at, updated_at)
+            VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pc, :ord, :pps, :ts, :ts)
         """), {
             "uid": user_id, "t": ticker,
             "n": str(item.get("name") or ticker),
@@ -765,6 +823,7 @@ def insert_portfolio_item(user_id: int, item: dict) -> dict:
             "s": str(item.get("source") or "unknown"),
             "m": int(bool(item.get("manually_added", False))),
             **purchase,
+            "ord": display_order,
             "ts": now,
         })
         row = conn.execute(
@@ -787,10 +846,12 @@ def upsert_portfolio_item(user_id: int, item: dict) -> dict:
 
         if existing:
             existing_id = existing[0]
+            display_order = _int_or_none(item.get("display_order"))
             conn.execute(text("""
                 UPDATE portfolio_items SET
                     name=:n, qty=:q, currency=:c, exchange=:e,
                     source=:s, manually_added=:m,
+                    display_order=COALESCE(:ord, display_order),
                     purchase_price=:pp, purchase_date=:pd, purchase_cost=:pc, purchase_price_source=:pps,
                     updated_at=:ts
                 WHERE user_id=:uid AND id=:id
@@ -802,14 +863,18 @@ def upsert_portfolio_item(user_id: int, item: dict) -> dict:
                 "s": str(item.get("source") or "unknown"),
                 "m": int(bool(item.get("manually_added", False))),
                 **purchase,
+                "ord": display_order,
                 "ts": now, "uid": user_id, "id": existing_id,
             })
         else:
+            display_order = _int_or_none(item.get("display_order"))
+            if display_order is None:
+                display_order = _next_display_order(conn, user_id)
             conn.execute(text("""
                 INSERT INTO portfolio_items
                 (user_id, ticker, name, qty, currency, exchange, source, manually_added,
-                 purchase_price, purchase_date, purchase_cost, purchase_price_source, created_at, updated_at)
-                VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pc, :pps, :ts, :ts)
+                 purchase_price, purchase_date, purchase_cost, display_order, purchase_price_source, created_at, updated_at)
+                VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pc, :ord, :pps, :ts, :ts)
             """), {
                 "uid": user_id, "t": ticker,
                 "n": str(item.get("name") or ticker),
@@ -819,6 +884,7 @@ def upsert_portfolio_item(user_id: int, item: dict) -> dict:
                 "s": str(item.get("source") or "unknown"),
                 "m": int(bool(item.get("manually_added", False))),
                 **purchase,
+                "ord": display_order,
                 "ts": now,
             })
 
@@ -850,11 +916,13 @@ def update_portfolio_qty_by_id(user_id: int, item_id: int, qty: float) -> bool:
 
 def update_portfolio_item_by_id(user_id: int, item_id: int, item: dict) -> Optional[dict]:
     purchase = _purchase_fields(item)
+    display_order = _int_or_none(item.get("display_order"))
     with _conn() as conn:
         cur = conn.execute(text("""
             UPDATE portfolio_items SET
                 name=:n, qty=:q, currency=:c, exchange=:e,
                 source=:s, manually_added=:m,
+                display_order=COALESCE(:ord, display_order),
                 purchase_price=:pp, purchase_date=:pd, purchase_cost=:pc, purchase_price_source=:pps,
                 updated_at=:ts
             WHERE user_id=:uid AND id=:id
@@ -866,6 +934,7 @@ def update_portfolio_item_by_id(user_id: int, item_id: int, item: dict) -> Optio
             "s": str(item.get("source") or "unknown"),
             "m": int(bool(item.get("manually_added", False))),
             **purchase,
+            "ord": display_order,
             "ts": _now(), "uid": user_id, "id": item_id,
         })
         if cur.rowcount <= 0:
@@ -875,6 +944,37 @@ def update_portfolio_item_by_id(user_id: int, item_id: int, item: dict) -> Optio
             {"uid": user_id, "id": item_id},
         ).fetchone()
         return _row(row)
+
+
+def reorder_portfolio_items(user_id: int, ordered_ids: list[int]) -> list[dict]:
+    if not isinstance(ordered_ids, list) or not ordered_ids:
+        raise ValueError("Ervenytelen sorrend.")
+    try:
+        ids = [int(item_id) for item_id in ordered_ids]
+    except (TypeError, ValueError):
+        raise ValueError("Ervenytelen sorrend.")
+    if len(ids) != len(set(ids)):
+        raise ValueError("Ismetlodo portfolio azonosito.")
+
+    with _conn() as conn:
+        rows = conn.execute(
+            text("SELECT id FROM portfolio_items WHERE user_id=:uid"),
+            {"uid": user_id},
+        ).fetchall()
+        owned_ids = {int(row[0]) for row in rows}
+        if set(ids) != owned_ids:
+            raise PermissionError("A sorrend csak a sajat portfolio elemekre modosithato.")
+        now = _now()
+        for order, item_id in enumerate(ids):
+            conn.execute(
+                text("""
+                    UPDATE portfolio_items
+                    SET display_order=:ord, updated_at=:ts
+                    WHERE user_id=:uid AND id=:id
+                """),
+                {"ord": order, "ts": now, "uid": user_id, "id": item_id},
+            )
+    return get_portfolio(user_id)
 
 
 def delete_portfolio_item(user_id: int, ticker: str) -> bool:
@@ -912,7 +1012,7 @@ def save_full_portfolio(user_id: int, items: list[dict]):
         conn.execute(
             text("DELETE FROM portfolio_items WHERE user_id=:uid"), {"uid": user_id}
         )
-        for item in items:
+        for display_order, item in enumerate(items):
             ticker = str(item.get("ticker", "")).strip().upper()
             if not ticker:
                 continue
@@ -920,8 +1020,8 @@ def save_full_portfolio(user_id: int, items: list[dict]):
             conn.execute(text("""
                 INSERT INTO portfolio_items
                 (user_id, ticker, name, qty, currency, exchange, source, manually_added,
-                 purchase_price, purchase_date, purchase_cost, purchase_price_source, created_at, updated_at)
-                VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pc, :pps, :ts, :ts)
+                 purchase_price, purchase_date, purchase_cost, display_order, purchase_price_source, created_at, updated_at)
+                VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pc, :ord, :pps, :ts, :ts)
             """), {
                 "uid": user_id, "t": ticker,
                 "n": str(item.get("name") or ticker),
@@ -931,6 +1031,7 @@ def save_full_portfolio(user_id: int, items: list[dict]):
                 "s": str(item.get("source") or "unknown"),
                 "m": int(bool(item.get("manually_added", False))),
                 **purchase,
+                "ord": _int_or_none(item.get("display_order")) if item.get("display_order") is not None else display_order,
                 "ts": now,
             })
 

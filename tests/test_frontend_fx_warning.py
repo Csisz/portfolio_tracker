@@ -44,6 +44,16 @@ def test_purchase_profit_loss_ui_present():
     assert "btn-history" not in html
 
 
+def test_manual_order_controls_present():
+    html = _index_html()
+    assert "Sorrend" in html
+    assert "movePortfolioRow" in html
+    assert "/api/portfolio/reorder" in html
+    assert 'title="Fel"' in html
+    assert 'title="Le"' in html
+    assert "ordered_ids" in html
+
+
 def test_add_stock_card_shows_current_price_and_requires_purchase_price():
     html = _index_html()
     assert 'id="sel-current-price"' in html

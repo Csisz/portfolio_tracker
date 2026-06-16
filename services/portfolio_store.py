@@ -35,6 +35,7 @@ def _validate_item(item: dict) -> dict:
         "purchase_price":  item.get("purchase_price"),
         "purchase_date":   str(item.get("purchase_date") or "").strip() or None,
         "purchase_cost":   item.get("purchase_cost"),
+        "display_order":   item.get("display_order"),
         "purchase_price_source": str(item.get("purchase_price_source") or "").strip() or None,
     }
 

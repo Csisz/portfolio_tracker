@@ -31,6 +31,7 @@ from services.db import (create_alert, create_user, delete_alert,
                           get_all_users, get_audit_logs, get_portfolio,
                           get_stats, get_user_by_id, init_db, insert_portfolio_item,
                           log_event,
+                          reorder_portfolio_items,
                           save_full_portfolio, set_alert_active,
                           set_user_password, update_alert_state,
                           update_portfolio_item_by_id,
@@ -366,6 +367,23 @@ def api_portfolio_save():
     except Exception as e:
         logger.error("Portfolio mentési hiba: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/portfolio/reorder", methods=["PATCH"])
+@login_required
+def api_portfolio_reorder():
+    data = request.get_json(silent=True) or {}
+    ordered_ids = data.get("ordered_ids")
+    if not isinstance(ordered_ids, list):
+        return jsonify({"ok": False, "error": "Ervenytelen sorrend"}), 400
+    try:
+        portfolio = reorder_portfolio_items(current_user_id(), ordered_ids)
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 403
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    log_event(current_user_id(), "portfolio_reorder", f"rows={len(portfolio)}", _client_ip())
+    return jsonify({"ok": True, "portfolio": portfolio})
 
 
 @app.route("/api/portfolio/<int:item_id>", methods=["DELETE"])

@@ -11,7 +11,7 @@ from services.db import (
     get_portfolio, insert_portfolio_item, upsert_portfolio_item, update_portfolio_qty,
     update_portfolio_item_by_id, update_portfolio_qty_by_id,
     delete_portfolio_item, delete_portfolio_item_by_id,
-    save_full_portfolio, upsert_symbol_cache, get_all_symbols,
+    reorder_portfolio_items, save_full_portfolio, upsert_symbol_cache, get_all_symbols,
 )
 
 
@@ -158,9 +158,21 @@ def test_insert_allows_duplicate_ticker_lots():
     assert len(portfolio) == 2
     assert [item["purchase_price"] for item in portfolio] == [40250.0, 40600.0]
     assert [item["purchase_cost"] for item in portfolio] == [100.0, 120.0]
+    assert [item["display_order"] for item in portfolio] == [0, 1]
 
 
-def test_get_portfolio_orders_by_purchase_date_then_stable_fallback():
+def test_new_rows_append_to_display_order_end():
+    init_db("user1", "pass")
+    uid = get_user_by_username("user1")["id"]
+    first = insert_portfolio_item(uid, {"ticker": "AAPL", "name": "Apple", "qty": 1})
+    second = insert_portfolio_item(uid, {"ticker": "MSFT", "name": "Microsoft", "qty": 1})
+    third = insert_portfolio_item(uid, {"ticker": "TSLA", "name": "Tesla", "qty": 1})
+
+    assert [first["display_order"], second["display_order"], third["display_order"]] == [0, 1, 2]
+    assert [item["ticker"] for item in get_portfolio(uid)] == ["AAPL", "MSFT", "TSLA"]
+
+
+def test_get_portfolio_uses_purchase_date_when_manual_order_missing():
     init_db("user1", "pass")
     uid = get_user_by_username("user1")["id"]
     insert_portfolio_item(uid, {
@@ -183,9 +195,25 @@ def test_get_portfolio_orders_by_purchase_date_then_stable_fallback():
         "purchase_price": 170,
         "purchase_date": "2024-01-15",
     })
+    with db_module._conn() as conn:
+        conn.execute(db_module.text("UPDATE portfolio_items SET display_order = NULL WHERE user_id = :uid"), {"uid": uid})
 
     portfolio = get_portfolio(uid)
     assert [item["name"] for item in portfolio] == ["Apple older lot", "Apple", "Microsoft"]
+
+
+def test_reorder_portfolio_items_sets_manual_order_by_id():
+    init_db("user1", "pass")
+    uid = get_user_by_username("user1")["id"]
+    first = insert_portfolio_item(uid, {"ticker": "OTP.BD", "name": "OTP first", "qty": 1})
+    second = insert_portfolio_item(uid, {"ticker": "OTP.BD", "name": "OTP second", "qty": 1})
+    third = insert_portfolio_item(uid, {"ticker": "MOL.BD", "name": "MOL", "qty": 1})
+
+    updated = reorder_portfolio_items(uid, [second["id"], third["id"], first["id"]])
+
+    assert [item["id"] for item in updated] == [second["id"], third["id"], first["id"]]
+    assert [item["display_order"] for item in updated] == [0, 1, 2]
+    assert [item["id"] for item in get_portfolio(uid)] == [second["id"], third["id"], first["id"]]
 
 
 def test_id_based_updates_only_one_duplicate_ticker_lot():

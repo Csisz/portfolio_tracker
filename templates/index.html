@@ -198,6 +198,10 @@
     .qty-display { cursor: pointer; padding: 3px 7px; border-radius: 5px; border: 1px solid transparent; }
     .qty-display:hover { border-color: #ddd; background: #f5f5ee; }
     .qty-edit { width: 70px; padding: 3px 7px; border: 1.5px solid #1a1a2e; border-radius: 5px; font-size: 14px; text-align: right; outline: none; display: none; }
+    .order-controls { display: flex; justify-content: center; gap: 4px; }
+    .btn-order { width: 30px; height: 28px; border: 1px solid #ddd; border-radius: 6px; background: #fff; color: #374151; cursor: pointer; font-size: 13px; line-height: 1; }
+    .btn-order:hover:not(:disabled) { background: #f3f4f6; border-color: #bbb; }
+    .btn-order:disabled { opacity: 0.35; cursor: default; }
 
     .btn-del { background: none; border: none; cursor: pointer; color: #ddd; font-size: 20px; padding: 2px 6px; border-radius: 4px; line-height: 1; }
     .btn-del:hover { color: #dc2626; background: #fee2e2; }
@@ -215,7 +219,7 @@
 
     @media (max-width: 680px) {
       .summary-grid { grid-template-columns: 1fr 1fr; }
-      thead th:nth-child(4), tbody td:nth-child(4) { display: none; }
+      thead th:nth-child(5), tbody td:nth-child(5) { display: none; }
       .selected-stock-box.visible { flex-direction: column; align-items: flex-start; }
       .manual-grid-5 { grid-template-columns: 1fr 1fr; }
       .purchase-grid { grid-template-columns: 1fr; }
@@ -478,6 +482,7 @@
     <table>
       <thead>
         <tr>
+          <th class="num">Sorrend</th>
           <th>Részvény</th>
           <th class="num">Darab <span style="font-size:10px;color:#bbb">(kattints)</span></th>
           <th class="num">Árfolyam / Forrás</th>
@@ -493,7 +498,7 @@
         </tr>
       </thead>
       <tbody id="stocks-tbody">
-        <tr><td colspan="12" class="loading-cell" style="padding:20px;text-align:center">Betöltés...</td></tr>
+        <tr><td colspan="13" class="loading-cell" style="padding:20px;text-align:center">Betöltés...</td></tr>
       </tbody>
     </table>
   </div>
@@ -861,7 +866,7 @@
   function renderTable() {
     const tbody = document.getElementById('stocks-tbody');
     if (!portfolio.length) {
-      tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#bbb;padding:24px">Még nincs részvény. Keress egyet fent!</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#bbb;padding:24px">Még nincs részvény. Keress egyet fent!</td></tr>';
       return;
     }
     tbody.innerHTML = portfolio.map((s, i) => {
@@ -1711,10 +1716,45 @@
     calcTotals();
   }
 
+  async function movePortfolioRow(i, direction) {
+    const target = i + direction;
+    if (target < 0 || target >= portfolio.length) return;
+    const moved = portfolio.splice(i, 1)[0];
+    portfolio.splice(target, 0, moved);
+    renderTable();
+    const ok = await savePortfolioOrder();
+    if (!ok) await reloadPortfolioAfterOrderError();
+  }
+
+  async function savePortfolioOrder() {
+    const orderedIds = portfolio.map(item => item && item.id).filter(Boolean);
+    if (orderedIds.length !== portfolio.length) return false;
+    const r = await apiFetch('/api/portfolio/reorder', {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ordered_ids: orderedIds})
+    });
+    if (!r || !r.ok) return false;
+    const d = await r.json();
+    if (!d.ok || !Array.isArray(d.portfolio)) return false;
+    portfolio = d.portfolio;
+    renderTable();
+    return true;
+  }
+
+  async function reloadPortfolioAfterOrderError() {
+    appendBanner('A sorrend mentese nem sikerult. Ujratoltom a portfoliot.');
+    const resp = await apiFetch('/api/portfolio');
+    if (resp) portfolio = await resp.json();
+    renderTable();
+    calcTotals();
+    calcComposition();
+  }
+
   renderTable = function() {
     const tbody = document.getElementById('stocks-tbody');
     if (!portfolio.length) {
-      tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#bbb;padding:24px">Meg nincs reszveny. Keress egyet fent!</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#bbb;padding:24px">Meg nincs reszveny. Keress egyet fent!</td></tr>';
       return;
     }
     tbody.innerHTML = portfolio.map((s, i) => {
@@ -1746,6 +1786,10 @@
       const purchaseDateVal = s.purchase_date || '';
       const purchaseCostVal = s.purchase_cost != null && s.purchase_cost !== '' ? s.purchase_cost : '';
       return `<tr>
+        <td class="num"><div class="order-controls">
+          <button class="btn-order" onclick="movePortfolioRow(${i}, -1)" title="Fel" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="btn-order" onclick="movePortfolioRow(${i}, 1)" title="Le" ${i === portfolio.length - 1 ? 'disabled' : ''}>↓</button>
+        </div></td>
         <td><div class="ticker-badge">${s.ticker}${tag}</div><div class="stock-name">${s.name || ''}</div></td>
         <td class="num"><div class="qty-cell">
           <span class="qty-display" onclick="startEditQty(${i})" title="Kattints a modositasahoz">${s.qty}</span>

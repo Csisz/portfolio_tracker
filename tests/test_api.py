@@ -459,7 +459,7 @@ def test_add_manual_new_ticker_still_creates_new_row(client):
     assert {item["ticker"] for item in portfolio} == {"OTP.BD", "MOL.BD"}
 
 
-def test_portfolio_orders_later_added_older_purchase_by_purchase_date(client):
+def test_new_manual_lots_append_even_with_older_purchase_date(client):
     with patch("app.get_ticker_info", return_value=None):
         client.post("/api/add_manual", json={
             "ticker": "AAPL",
@@ -475,8 +475,57 @@ def test_portfolio_orders_later_added_older_purchase_by_purchase_date(client):
         })
 
     portfolio = client.get("/api/portfolio").get_json()
-    assert [item["purchase_date"] for item in portfolio] == ["2024-01-15", "2024-03-01"]
-    assert [item["purchase_price"] for item in portfolio] == [170.0, 190.0]
+    assert [item["purchase_date"] for item in portfolio] == ["2024-03-01", "2024-01-15"]
+    assert [item["purchase_price"] for item in portfolio] == [190.0, 170.0]
+    assert [item["display_order"] for item in portfolio] == [0, 1]
+
+
+def test_portfolio_reorder_saves_manual_order(client):
+    client.post("/api/portfolio", json=[
+        {"ticker": "AAPL", "name": "Apple", "qty": 1},
+        {"ticker": "MSFT", "name": "Microsoft", "qty": 1},
+        {"ticker": "TSLA", "name": "Tesla", "qty": 1},
+    ])
+    portfolio = client.get("/api/portfolio").get_json()
+    ordered_ids = [portfolio[2]["id"], portfolio[0]["id"], portfolio[1]["id"]]
+
+    r = client.patch("/api/portfolio/reorder", json={"ordered_ids": ordered_ids})
+
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["ok"] is True
+    assert [item["id"] for item in data["portfolio"]] == ordered_ids
+    assert [item["ticker"] for item in client.get("/api/portfolio").get_json()] == ["TSLA", "AAPL", "MSFT"]
+
+
+def test_portfolio_reorder_duplicate_ticker_lots_by_id(client):
+    with patch("app.get_ticker_info", return_value=None):
+        client.post("/api/add_manual", json={"ticker": "OTP.BD", "qty": 1, "purchase_price": 40250})
+        client.post("/api/add_manual", json={"ticker": "OTP.BD", "qty": 2, "purchase_price": 40600})
+    portfolio = client.get("/api/portfolio").get_json()
+    ordered_ids = [portfolio[1]["id"], portfolio[0]["id"]]
+
+    r = client.patch("/api/portfolio/reorder", json={"ordered_ids": ordered_ids})
+
+    assert r.status_code == 200
+    updated = client.get("/api/portfolio").get_json()
+    assert [item["id"] for item in updated] == ordered_ids
+    assert [item["qty"] for item in updated] == [2.0, 1.0]
+
+
+def test_user_cannot_reorder_another_users_items(client):
+    client.post("/api/portfolio", json=[{"ticker": "AAPL", "name": "Apple", "qty": 1}])
+    admin_item = client.get("/api/portfolio").get_json()[0]
+    db_module.create_user("other", "otherpass")
+    client.get("/logout")
+    client.post("/login", data={"username": "other", "password": "otherpass"})
+    client.post("/api/portfolio", json=[{"ticker": "MSFT", "name": "Microsoft", "qty": 1}])
+    other_item = client.get("/api/portfolio").get_json()[0]
+
+    r = client.patch("/api/portfolio/reorder", json={"ordered_ids": [other_item["id"], admin_item["id"]]})
+
+    assert r.status_code == 403
+    assert [item["ticker"] for item in client.get("/api/portfolio").get_json()] == ["MSFT"]
 
 
 def test_add_manual_existing_without_purchase_price_still_creates_new_lot(client):
@@ -770,6 +819,32 @@ def test_export_xlsx_includes_purchase_fields_and_cost_adjusted_profit(client):
     assert by_header["Befektetett érték"] == 545
     assert by_header["Nyereség / veszteség"] == 55
     assert by_header["Hozam %"] == 10.09
+
+
+def test_export_xlsx_follows_manual_portfolio_order(client):
+    client.post("/api/portfolio", json=[
+        {"ticker": "AAPL", "name": "Apple", "qty": 1},
+        {"ticker": "MSFT", "name": "Microsoft", "qty": 1},
+        {"ticker": "TSLA", "name": "Tesla", "qty": 1},
+    ])
+    portfolio = client.get("/api/portfolio").get_json()
+    ordered_ids = [portfolio[1]["id"], portfolio[2]["id"], portfolio[0]["id"]]
+    client.patch("/api/portfolio/reorder", json={"ordered_ids": ordered_ids})
+    with patch("app.get_prices_for_tickers", return_value={
+        "prices": {
+            "AAPL": {"price": 200.0, "currency": "USD", "source": "Yahoo Finance", "timestamp": "..."},
+            "MSFT": {"price": 300.0, "currency": "USD", "source": "Yahoo Finance", "timestamp": "..."},
+            "TSLA": {"price": 400.0, "currency": "USD", "source": "Yahoo Finance", "timestamp": "..."},
+        },
+        "errors": [], "timestamp": "...", "source": "Yahoo Finance"
+    }), patch("app.get_fx_rates", return_value=_mnb_ok()):
+        r = client.get("/api/export/xlsx")
+
+    assert r.status_code == 200
+    from openpyxl import load_workbook
+    wb = load_workbook(BytesIO(r.data))
+    ws = wb.active
+    assert [ws.cell(row=i, column=2).value for i in range(2, 5)] == ["MSFT", "TSLA", "AAPL"]
 
 
 def test_export_xlsx_empty_portfolio_400(client):
