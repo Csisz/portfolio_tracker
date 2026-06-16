@@ -125,10 +125,12 @@ def test_upsert_stores_purchase_fields():
         "qty": 10,
         "purchase_price": 150.5,
         "purchase_date": "2024-01-15",
+        "purchase_cost": 4.75,
         "purchase_price_source": "manual",
     })
     assert saved["purchase_price"] == 150.5
     assert saved["purchase_date"] == "2024-01-15"
+    assert saved["purchase_cost"] == 4.75
     assert saved["purchase_price_source"] == "manual"
 
 
@@ -140,17 +142,50 @@ def test_insert_allows_duplicate_ticker_lots():
         "name": "OTP",
         "qty": 1,
         "purchase_price": 40250,
+        "purchase_date": "2024-02-01",
+        "purchase_cost": 100,
     })
     second = insert_portfolio_item(uid, {
         "ticker": "OTP.BD",
         "name": "OTP",
         "qty": 1,
         "purchase_price": 40600,
+        "purchase_date": "2024-02-05",
+        "purchase_cost": 120,
     })
     portfolio = get_portfolio(uid)
     assert first["id"] != second["id"]
     assert len(portfolio) == 2
     assert [item["purchase_price"] for item in portfolio] == [40250.0, 40600.0]
+    assert [item["purchase_cost"] for item in portfolio] == [100.0, 120.0]
+
+
+def test_get_portfolio_orders_by_purchase_date_then_stable_fallback():
+    init_db("user1", "pass")
+    uid = get_user_by_username("user1")["id"]
+    insert_portfolio_item(uid, {
+        "ticker": "AAPL",
+        "name": "Apple",
+        "qty": 1,
+        "purchase_price": 190,
+        "purchase_date": "2024-03-10",
+    })
+    insert_portfolio_item(uid, {
+        "ticker": "MSFT",
+        "name": "Microsoft",
+        "qty": 1,
+        "purchase_price": 410,
+    })
+    insert_portfolio_item(uid, {
+        "ticker": "AAPL",
+        "name": "Apple older lot",
+        "qty": 1,
+        "purchase_price": 170,
+        "purchase_date": "2024-01-15",
+    })
+
+    portfolio = get_portfolio(uid)
+    assert [item["name"] for item in portfolio] == ["Apple older lot", "Apple", "Microsoft"]
 
 
 def test_id_based_updates_only_one_duplicate_ticker_lot():
@@ -161,6 +196,7 @@ def test_id_based_updates_only_one_duplicate_ticker_lot():
         "name": "OTP",
         "qty": 1,
         "purchase_price": 40250,
+        "purchase_date": "2024-02-01",
     })
     second = insert_portfolio_item(uid, {
         "ticker": "OTP.BD",
@@ -172,8 +208,12 @@ def test_id_based_updates_only_one_duplicate_ticker_lot():
     updated = dict(second)
     updated["qty"] = 3
     updated["purchase_price"] = 40700
+    updated["purchase_date"] = "2024-02-10"
+    updated["purchase_cost"] = 125
     saved = update_portfolio_item_by_id(uid, second["id"], updated)
     assert saved["purchase_price"] == 40700.0
+    assert saved["purchase_date"] == "2024-02-10"
+    assert saved["purchase_cost"] == 125.0
 
     portfolio = get_portfolio(uid)
     assert portfolio[0]["id"] == first["id"]
@@ -237,12 +277,14 @@ def test_save_full_portfolio_keeps_purchase_fields():
             "qty": 5,
             "purchase_price": 120,
             "purchase_date": "2023-12-20",
+            "purchase_cost": 2.5,
             "purchase_price_source": "historical",
         },
     ])
     item = get_portfolio(uid)[0]
     assert item["purchase_price"] == 120.0
     assert item["purchase_date"] == "2023-12-20"
+    assert item["purchase_cost"] == 2.5
     assert item["purchase_price_source"] == "historical"
 
 

@@ -28,13 +28,34 @@ def test_purchase_profit_loss_ui_present():
     assert "total-invested" in html
     assert "total-pl" in html
     assert "total-return" in html
-    assert "Veteli ar" in html
+    assert "Vétel dátuma" in html
+    assert "Vételi ár" in html
+    assert "Vételi költség" in html
+    assert "purchase_date" in html
+    assert "purchase_cost" in html
+    assert "purchase-date" in html
+    assert "purchase-cost" in html
     assert "Atlagos veteli ar" not in html
     assert "/api/price-history" not in html
-    assert "purchase_date" not in html
     assert "purchase_price_source" not in html
-    assert "purchase-date" not in html
     assert "purchase-source" not in html
     assert "fetchHistorical" not in html
     assert "historikus" not in html.lower()
     assert "btn-history" not in html
+
+
+def test_add_stock_card_shows_current_price_and_requires_purchase_price():
+    html = _index_html()
+    assert 'id="sel-current-price"' in html
+    assert "Aktualis arfolyam" in html
+    assert "Forras: cache / utolso ismert arfolyam" in html
+    assert "prefillCurrentPurchasePrice('sel', ticker)" in html
+    assert "function normalizeDisplayTicker(ticker)" in html
+    assert "OTP: 'OTP.BD'" in html
+    assert "MOL: 'MOL.BD'" in html
+    assert "findPriceEntry(d.prices, ticker)" in html
+    assert "body: JSON.stringify({tickers: [ticker]})" in html
+    assert "validateAddInputs('sel', qty)" in html
+    assert "validateAddInputs('m', qty)" in html
+    assert "Adj meg ervenyes veteli arat." in html
+    assert "Az aktualis arfolyam most nem elerheto. Add meg kezzel a veteli arat." in html

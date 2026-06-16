@@ -32,6 +32,10 @@ def _validate_item(item: dict) -> dict:
         "manually_added":  bool(item.get("manually_added", False)),
         "last_price":      item.get("last_price"),
         "last_price_time": item.get("last_price_time"),
+        "purchase_price":  item.get("purchase_price"),
+        "purchase_date":   str(item.get("purchase_date") or "").strip() or None,
+        "purchase_cost":   item.get("purchase_cost"),
+        "purchase_price_source": str(item.get("purchase_price_source") or "").strip() or None,
     }
 
 

@@ -160,6 +160,24 @@ def _client_ip() -> str:
     return request.headers.get("X-Forwarded-For", request.remote_addr or "")
 
 
+def _positive_float(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _non_negative_float_or_none(value):
+    if value in (None, ""):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 0 else None
+
+
 # ---------------------------------------------------------------------------
 # Login / Logout
 # ---------------------------------------------------------------------------
@@ -337,6 +355,11 @@ def api_portfolio_save():
     data = request.get_json(silent=True)
     if not isinstance(data, list):
         return jsonify({"ok": False, "error": "Lista szükséges"}), 400
+    for item in data:
+        if isinstance(item, dict) and "purchase_cost" in item:
+            cost = _non_negative_float_or_none(item.get("purchase_cost"))
+            if cost is None and item.get("purchase_cost") not in (None, ""):
+                return jsonify({"ok": False, "error": "Ervenytelen veteli koltseg"}), 400
     try:
         save_full_portfolio(current_user_id(), data)
         return jsonify({"ok": True})
@@ -358,7 +381,7 @@ def api_portfolio_delete(item_id: int):
 @login_required
 def api_portfolio_update(item_id: int):
     data = request.get_json(silent=True) or {}
-    purchase_keys = {"purchase_price", "purchase_date", "purchase_price_source"}
+    purchase_keys = {"purchase_price", "purchase_date", "purchase_cost", "purchase_price_source"}
     if purchase_keys.intersection(data.keys()) and "qty" not in data:
         portfolio = get_portfolio(current_user_id())
         item = next((i for i in portfolio if i["id"] == item_id), None)
@@ -377,6 +400,11 @@ def api_portfolio_update(item_id: int):
                     return jsonify({"ok": False, "error": "Ervenytelen veteli ar"}), 400
         if "purchase_date" in data:
             updated["purchase_date"] = str(data.get("purchase_date") or "").strip() or None
+        if "purchase_cost" in data:
+            cost = _non_negative_float_or_none(data.get("purchase_cost"))
+            if cost is None and data.get("purchase_cost") not in (None, ""):
+                return jsonify({"ok": False, "error": "Ervenytelen veteli koltseg"}), 400
+            updated["purchase_cost"] = cost
         if "purchase_price_source" in data:
             updated["purchase_price_source"] = str(data.get("purchase_price_source") or "").strip() or None
 
@@ -460,6 +488,9 @@ def api_add_manual():
 
     purchase_price = data.get("purchase_price")
     purchase_date = str(data.get("purchase_date") or "").strip() or None
+    purchase_cost = _non_negative_float_or_none(data.get("purchase_cost"))
+    if purchase_cost is None and data.get("purchase_cost") not in (None, ""):
+        return jsonify({"ok": False, "error": "Ervenytelen veteli koltseg"}), 400
     purchase_source = str(data.get("purchase_price_source") or "").strip().lower() or None
     price_info = None
     if purchase_price in (None, ""):
@@ -481,6 +512,11 @@ def api_add_manual():
     elif purchase_price not in (None, "") and not purchase_source:
         purchase_source = "manual"
 
+    purchase_price_value = _positive_float(purchase_price)
+    if purchase_price_value is None:
+        return jsonify({"ok": False, "error": "Vételi ár megadása kötelező."}), 400
+    purchase_price = purchase_price_value
+
     if not validated:
         validation_warning = (
             "Az árfolyam most nem elérhető. A részvény hozzáadható, "
@@ -494,6 +530,7 @@ def api_add_manual():
         "source": "manual", "manually_added": True,
         "purchase_price": purchase_price,
         "purchase_date": purchase_date,
+        "purchase_cost": purchase_cost,
         "purchase_price_source": purchase_source,
     })
 
@@ -845,6 +882,9 @@ def api_export_xlsx():
         "Érték (saját deviza)", "Érték (HUF)", "Érték (EUR)", "Érték (USD)",
         "Árfolyam időpontja", "Elavult ár?", "Hozzáadás módja", "Export időpontja",
     ]
+    headers[4:4] = ["Vétel dátuma", "Vételi ár", "Vételi költség"]
+    headers[14:14] = ["Befektetett érték", "Nyereség / veszteség", "Hozam %"]
+
     hdr_font = Font(bold=True, color="FFFFFF")
     hdr_fill = PatternFill("solid", fgColor="1A1A2E")
     ws.append(headers)
@@ -868,12 +908,33 @@ def api_export_xlsx():
         val_huf = to_huf(val_own, currency)
         val_eur = round(val_huf / fx["EUR/HUF"], 2) if val_huf and fx.get("EUR/HUF") else None
         val_usd = round(val_huf / fx["USD/HUF"], 2) if val_huf and fx.get("USD/HUF") else None
+        purchase_price = item.get("purchase_price")
+        purchase_cost = item.get("purchase_cost")
+        try:
+            purchase_price = float(purchase_price) if purchase_price not in (None, "") else None
+        except (TypeError, ValueError):
+            purchase_price = None
+        try:
+            purchase_cost = float(purchase_cost) if purchase_cost not in (None, "") else 0.0
+        except (TypeError, ValueError):
+            purchase_cost = 0.0
+        purchase_cost = max(purchase_cost, 0.0)
+        invested = None
+        profit_loss = None
+        return_pct = None
+        if purchase_price is not None and purchase_price > 0:
+            invested = round(purchase_price * item["qty"] + purchase_cost, 4)
+            if val_own is not None:
+                profit_loss = round(val_own - invested, 4)
+                return_pct = round((profit_loss / invested) * 100, 2) if invested > 0 else None
         if val_huf:
             total_huf += val_huf
         ws.append([
             item.get("name", ticker), ticker, item.get("exchange", ""), item["qty"],
+            item.get("purchase_date", ""), purchase_price, purchase_cost if purchase_cost else None,
             price, currency, (p or {}).get("source", "cache" if item.get("last_price") else ""),
             val_own, val_huf, val_eur, val_usd,
+            invested, profit_loss, return_pct,
             (p or {}).get("timestamp", item.get("last_price_time", "")),
             "Igen" if (p or {}).get("stale") else "Nem",
             "kézi" if item.get("manually_added") else "keresés",

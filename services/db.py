@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     last_price_time     TEXT,
     purchase_price      REAL,
     purchase_date       TEXT,
+    purchase_cost       REAL,
     purchase_price_source TEXT
 );
 
@@ -208,6 +209,7 @@ CREATE TABLE IF NOT EXISTS portfolio_items (
     last_price_time     TEXT,
     purchase_price      REAL,
     purchase_date       TEXT,
+    purchase_cost       REAL,
     purchase_price_source TEXT
 );
 
@@ -355,6 +357,7 @@ def _apply_migrations(conn):
     for sql in [
         "ALTER TABLE portfolio_items ADD COLUMN purchase_price REAL",
         "ALTER TABLE portfolio_items ADD COLUMN purchase_date TEXT",
+        "ALTER TABLE portfolio_items ADD COLUMN purchase_cost REAL",
         "ALTER TABLE portfolio_items ADD COLUMN purchase_price_source TEXT",
         "ALTER TABLE alerts ADD COLUMN email_to TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE alerts ADD COLUMN cooldown_minutes INTEGER NOT NULL DEFAULT 60",
@@ -420,6 +423,7 @@ def _drop_sqlite_portfolio_unique_constraint(conn):
                 last_price_time     TEXT,
                 purchase_price      REAL,
                 purchase_date       TEXT,
+                purchase_cost       REAL,
                 purchase_price_source TEXT
             )
         """))
@@ -427,10 +431,10 @@ def _drop_sqlite_portfolio_unique_constraint(conn):
             INSERT INTO portfolio_items
             (id, user_id, ticker, name, qty, currency, exchange, source, manually_added,
              created_at, updated_at, last_price, last_price_currency, last_price_source,
-             last_price_time, purchase_price, purchase_date, purchase_price_source)
+             last_price_time, purchase_price, purchase_date, purchase_cost, purchase_price_source)
             SELECT id, user_id, ticker, name, qty, currency, exchange, source, manually_added,
                    created_at, updated_at, last_price, last_price_currency, last_price_source,
-                   last_price_time, purchase_price, purchase_date, purchase_price_source
+                   last_price_time, purchase_price, purchase_date, purchase_cost, purchase_price_source
             FROM portfolio_items_old
         """))
         conn.execute(text("DROP TABLE portfolio_items_old"))
@@ -708,8 +712,11 @@ def _purchase_fields(item: dict) -> dict:
         source = None
     purchase_price = _float_or_none(item.get("purchase_price"))
     purchase_date = str(item.get("purchase_date") or "").strip() or None
+    purchase_cost = _float_or_none(item.get("purchase_cost"))
     if purchase_price is not None and purchase_price <= 0:
         purchase_price = None
+    if purchase_cost is not None and purchase_cost < 0:
+        purchase_cost = None
     if purchase_price is not None and not source:
         source = "manual"
     if purchase_price is None:
@@ -717,6 +724,7 @@ def _purchase_fields(item: dict) -> dict:
     return {
         "pp": purchase_price,
         "pd": purchase_date,
+        "pc": purchase_cost,
         "pps": source,
     }
 
@@ -724,7 +732,15 @@ def _purchase_fields(item: dict) -> dict:
 def get_portfolio(user_id: int) -> list[dict]:
     with _conn() as conn:
         rows = conn.execute(
-            text("SELECT * FROM portfolio_items WHERE user_id = :uid ORDER BY created_at"),
+            text("""
+                SELECT * FROM portfolio_items
+                WHERE user_id = :uid
+                ORDER BY
+                    CASE WHEN purchase_date IS NULL OR purchase_date = '' THEN 1 ELSE 0 END,
+                    purchase_date ASC,
+                    created_at ASC,
+                    id ASC
+            """),
             {"uid": user_id},
         ).fetchall()
         return [_row(r) for r in rows]
@@ -738,8 +754,8 @@ def insert_portfolio_item(user_id: int, item: dict) -> dict:
         conn.execute(text("""
             INSERT INTO portfolio_items
             (user_id, ticker, name, qty, currency, exchange, source, manually_added,
-             purchase_price, purchase_date, purchase_price_source, created_at, updated_at)
-            VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pps, :ts, :ts)
+             purchase_price, purchase_date, purchase_cost, purchase_price_source, created_at, updated_at)
+            VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pc, :pps, :ts, :ts)
         """), {
             "uid": user_id, "t": ticker,
             "n": str(item.get("name") or ticker),
@@ -775,7 +791,7 @@ def upsert_portfolio_item(user_id: int, item: dict) -> dict:
                 UPDATE portfolio_items SET
                     name=:n, qty=:q, currency=:c, exchange=:e,
                     source=:s, manually_added=:m,
-                    purchase_price=:pp, purchase_date=:pd, purchase_price_source=:pps,
+                    purchase_price=:pp, purchase_date=:pd, purchase_cost=:pc, purchase_price_source=:pps,
                     updated_at=:ts
                 WHERE user_id=:uid AND id=:id
             """), {
@@ -792,8 +808,8 @@ def upsert_portfolio_item(user_id: int, item: dict) -> dict:
             conn.execute(text("""
                 INSERT INTO portfolio_items
                 (user_id, ticker, name, qty, currency, exchange, source, manually_added,
-                 purchase_price, purchase_date, purchase_price_source, created_at, updated_at)
-                VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pps, :ts, :ts)
+                 purchase_price, purchase_date, purchase_cost, purchase_price_source, created_at, updated_at)
+                VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pc, :pps, :ts, :ts)
             """), {
                 "uid": user_id, "t": ticker,
                 "n": str(item.get("name") or ticker),
@@ -839,7 +855,7 @@ def update_portfolio_item_by_id(user_id: int, item_id: int, item: dict) -> Optio
             UPDATE portfolio_items SET
                 name=:n, qty=:q, currency=:c, exchange=:e,
                 source=:s, manually_added=:m,
-                purchase_price=:pp, purchase_date=:pd, purchase_price_source=:pps,
+                purchase_price=:pp, purchase_date=:pd, purchase_cost=:pc, purchase_price_source=:pps,
                 updated_at=:ts
             WHERE user_id=:uid AND id=:id
         """), {
@@ -904,8 +920,8 @@ def save_full_portfolio(user_id: int, items: list[dict]):
             conn.execute(text("""
                 INSERT INTO portfolio_items
                 (user_id, ticker, name, qty, currency, exchange, source, manually_added,
-                 purchase_price, purchase_date, purchase_price_source, created_at, updated_at)
-                VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pps, :ts, :ts)
+                 purchase_price, purchase_date, purchase_cost, purchase_price_source, created_at, updated_at)
+                VALUES (:uid, :t, :n, :q, :c, :e, :s, :m, :pp, :pd, :pc, :pps, :ts, :ts)
             """), {
                 "uid": user_id, "t": ticker,
                 "n": str(item.get("name") or ticker),

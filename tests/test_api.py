@@ -2,6 +2,7 @@
 Flask API végpont tesztek – session auth + mock-ok.
 """
 import sys, os
+from io import BytesIO
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest
@@ -324,6 +325,7 @@ def test_portfolio_save_purchase_fields(client):
         "qty": 5,
         "purchase_price": 150,
         "purchase_date": "2024-01-15",
+        "purchase_cost": 7.5,
         "purchase_price_source": "manual",
     }]
     r = client.post("/api/portfolio", json=items)
@@ -331,6 +333,7 @@ def test_portfolio_save_purchase_fields(client):
     saved = client.get("/api/portfolio").get_json()[0]
     assert saved["purchase_price"] == 150.0
     assert saved["purchase_date"] == "2024-01-15"
+    assert saved["purchase_cost"] == 7.5
     assert saved["purchase_price_source"] == "manual"
 
 
@@ -340,14 +343,33 @@ def test_portfolio_patch_purchase_fields(client):
     r = client.patch(f"/api/portfolio/{item_id}", json={
         "purchase_price": 175.25,
         "purchase_date": "2024-02-01",
+        "purchase_cost": 3.25,
         "purchase_price_source": "historical",
     })
     assert r.status_code == 200
     d = r.get_json()
     assert d["ok"] is True
     assert d["item"]["purchase_price"] == 175.25
+    assert d["item"]["purchase_date"] == "2024-02-01"
+    assert d["item"]["purchase_cost"] == 3.25
     saved = client.get("/api/portfolio").get_json()[0]
     assert saved["purchase_price_source"] == "historical"
+
+
+def test_portfolio_rejects_negative_purchase_cost(client):
+    r = client.post("/api/portfolio", json=[{
+        "ticker": "AAPL",
+        "name": "Apple",
+        "qty": 1,
+        "purchase_price": 150,
+        "purchase_cost": -1,
+    }])
+    assert r.status_code == 400
+
+    client.post("/api/portfolio", json=[{"ticker": "AAPL", "name": "Apple", "qty": 1}])
+    item_id = client.get("/api/portfolio").get_json()[0]["id"]
+    r = client.patch(f"/api/portfolio/{item_id}", json={"purchase_cost": -1})
+    assert r.status_code == 400
 
 
 def test_add_manual_accepts_purchase_price(client):
@@ -363,12 +385,14 @@ def test_add_manual_accepts_purchase_price(client):
             "qty": 2,
             "purchase_price": 180,
             "purchase_date": "2024-01-15",
+            "purchase_cost": 1.25,
             "purchase_price_source": "manual",
         })
     assert r.status_code == 200
     saved = client.get("/api/portfolio").get_json()[0]
     assert saved["purchase_price"] == 180.0
     assert saved["purchase_date"] == "2024-01-15"
+    assert saved["purchase_cost"] == 1.25
 
 
 def test_add_manual_same_ticker_creates_separate_lots(client):
@@ -435,6 +459,26 @@ def test_add_manual_new_ticker_still_creates_new_row(client):
     assert {item["ticker"] for item in portfolio} == {"OTP.BD", "MOL.BD"}
 
 
+def test_portfolio_orders_later_added_older_purchase_by_purchase_date(client):
+    with patch("app.get_ticker_info", return_value=None):
+        client.post("/api/add_manual", json={
+            "ticker": "AAPL",
+            "qty": 1,
+            "purchase_price": 190,
+            "purchase_date": "2024-03-01",
+        })
+        client.post("/api/add_manual", json={
+            "ticker": "AAPL",
+            "qty": 1,
+            "purchase_price": 170,
+            "purchase_date": "2024-01-15",
+        })
+
+    portfolio = client.get("/api/portfolio").get_json()
+    assert [item["purchase_date"] for item in portfolio] == ["2024-01-15", "2024-03-01"]
+    assert [item["purchase_price"] for item in portfolio] == [170.0, 190.0]
+
+
 def test_add_manual_existing_without_purchase_price_still_creates_new_lot(client):
     client.post("/api/portfolio", json=[{
         "ticker": "OTP.BD",
@@ -464,25 +508,35 @@ def test_portfolio_patch_duplicate_ticker_updates_only_selected_lot(client):
             "ticker": "OTP.BD",
             "qty": 1,
             "purchase_price": 40250,
+            "purchase_date": "2024-02-01",
         })
         client.post("/api/add_manual", json={
             "ticker": "OTP.BD",
             "qty": 1,
             "purchase_price": 40600,
+            "purchase_date": "2024-02-10",
         })
     portfolio = client.get("/api/portfolio").get_json()
     second_id = portfolio[1]["id"]
 
     r_qty = client.put(f"/api/portfolio/{second_id}", json={"qty": 3})
-    r_price = client.patch(f"/api/portfolio/{second_id}", json={"purchase_price": 40700})
+    r_price = client.patch(f"/api/portfolio/{second_id}", json={
+        "purchase_price": 40700,
+        "purchase_date": "2024-02-15",
+        "purchase_cost": 125,
+    })
 
     assert r_qty.status_code == 200
     assert r_price.status_code == 200
     updated = client.get("/api/portfolio").get_json()
     assert updated[0]["qty"] == 1.0
     assert updated[0]["purchase_price"] == 40250.0
+    assert updated[0]["purchase_date"] == "2024-02-01"
+    assert updated[0]["purchase_cost"] is None
     assert updated[1]["qty"] == 3.0
     assert updated[1]["purchase_price"] == 40700.0
+    assert updated[1]["purchase_date"] == "2024-02-15"
+    assert updated[1]["purchase_cost"] == 125.0
 
 
 def test_portfolio_delete_duplicate_ticker_removes_only_selected_lot(client):
@@ -557,7 +611,7 @@ def test_add_manual_normalizes_otp_and_uses_price_service(client):
     assert saved["purchase_price"] == 40850.0
 
 
-def test_add_manual_allows_missing_price_without_fake_purchase_price(client):
+def test_add_manual_rejects_missing_purchase_price_when_no_price_fallback(client):
     with patch("app.get_ticker_info", return_value=None), \
          patch("app.get_prices_for_tickers", return_value={
              "prices": {},
@@ -570,13 +624,32 @@ def test_add_manual_allows_missing_price_without_fake_purchase_price(client):
             "qty": 3,
         })
 
-    assert r.status_code == 200
+    assert r.status_code == 400
     data = r.get_json()
-    assert data["ok"] is True
-    assert "vételi árat kézzel" in data["warning"]
-    saved = client.get("/api/portfolio").get_json()[0]
-    assert saved["ticker"] == "MOL.BD"
-    assert saved["purchase_price"] is None
+    assert data["ok"] is False
+    assert data["error"] == "Vételi ár megadása kötelező."
+    assert client.get("/api/portfolio").get_json() == []
+
+
+def test_add_manual_rejects_non_positive_purchase_price(client):
+    for value in ("", 0, -1, "abc"):
+        with patch("app.get_ticker_info", return_value=None), \
+             patch("app.get_prices_for_tickers", return_value={
+                 "prices": {},
+                 "errors": [],
+                 "timestamp": "2026-06-05T10:00:00",
+                 "source": "none",
+             }):
+            r = client.post("/api/add_manual", json={
+                "ticker": "MOL.BD",
+                "qty": 3,
+                "purchase_price": value,
+            })
+
+        assert r.status_code == 400
+        assert r.get_json()["error"] == "Vételi ár megadása kötelező."
+
+    assert client.get("/api/portfolio").get_json() == []
 
 
 def test_add_manual_uses_cached_price_from_price_service(client):
@@ -665,6 +738,38 @@ def test_export_xlsx_mime_type(client):
         r = client.get("/api/export/xlsx")
     assert r.status_code == 200
     assert "spreadsheetml" in r.content_type
+
+
+def test_export_xlsx_includes_purchase_fields_and_cost_adjusted_profit(client):
+    client.post("/api/portfolio", json=[{
+        "ticker": "AAPL",
+        "name": "Apple",
+        "qty": 3,
+        "purchase_price": 180,
+        "purchase_date": "2024-01-15",
+        "purchase_cost": 5,
+    }])
+    with patch("app.get_prices_for_tickers", return_value={
+        "prices": {"AAPL": {"price": 200.0, "currency": "USD", "source": "Yahoo Finance", "timestamp": "..."}},
+        "errors": [], "timestamp": "...", "source": "Yahoo Finance"
+    }), patch("app.get_fx_rates", return_value=_mnb_ok()):
+        r = client.get("/api/export/xlsx")
+
+    assert r.status_code == 200
+    from openpyxl import load_workbook
+    wb = load_workbook(BytesIO(r.data))
+    ws = wb.active
+    headers = [cell.value for cell in ws[1]]
+    assert "Vétel dátuma" in headers
+    assert "Vételi költség" in headers
+    assert "Nyereség / veszteség" in headers
+    row = [cell.value for cell in ws[2]]
+    by_header = dict(zip(headers, row))
+    assert by_header["Vétel dátuma"] == "2024-01-15"
+    assert by_header["Vételi költség"] == 5
+    assert by_header["Befektetett érték"] == 545
+    assert by_header["Nyereség / veszteség"] == 55
+    assert by_header["Hozam %"] == 10.09
 
 
 def test_export_xlsx_empty_portfolio_400(client):
