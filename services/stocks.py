@@ -84,13 +84,13 @@ def _bd_to_stooq(ticker: str) -> str | None:
 # Árfolyam lekérés
 # ---------------------------------------------------------------------------
 
-def get_last_price(ticker: str) -> tuple[float | None, str | None, str, bool]:
+def get_last_price(ticker: str, force_refresh: bool = False) -> tuple[float | None, str | None, str, bool]:
     """
     Visszaadja: (ár, deviza, forrás, stale)
     stale=True: elavult, cache-ből vagy symbols_cache-ből jön
 
     Sorrend:
-    A) price cache (TTL-n belül)
+    A) price cache (TTL-n belül, kivéve force_refresh=True)
     B) yfinance fast_info
     C) yfinance history(5d)
     D) Stooq fallback (minden ismert tőzsdére)
@@ -100,7 +100,7 @@ def get_last_price(ticker: str) -> tuple[float | None, str | None, str, bool]:
     key = PRICE_CACHE_PREFIX + clean_ticker
 
     # A) Memory cache
-    cached = cache.get(key)
+    cached = None if force_refresh else cache.get(key)
     if cached:
         return cached["price"], cached["currency"], "Yahoo Finance/cache", False
 
@@ -265,7 +265,7 @@ def _get_stale_price(ticker: str) -> tuple[float | None, str | None]:
 # Batch lekérés
 # ---------------------------------------------------------------------------
 
-def get_prices_for_tickers(tickers: list[str]) -> dict:
+def get_prices_for_tickers(tickers: list[str], force_refresh: bool = False) -> dict:
     prices = {}
     errors = []
     any_live = False
@@ -275,14 +275,17 @@ def get_prices_for_tickers(tickers: list[str]) -> dict:
         original_ticker = str(ticker or "").strip().upper()
         response_ticker = original_ticker or normalize_ticker(ticker)
         try:
-            price, currency, source, stale = get_last_price(ticker)
+            price, currency, source, stale = get_last_price(ticker, force_refresh=force_refresh)
             if price is not None:
                 entry = {
                     "price": price,
                     "currency": currency or "USD",
                     "source": source,
-                    "timestamp": datetime.now().isoformat(timespec="seconds"),
                 }
+                if stale:
+                    entry["timestamp"] = None
+                else:
+                    entry["timestamp"] = datetime.now().isoformat(timespec="seconds")
                 if stale:
                     entry["stale"] = True
                 prices[response_ticker] = entry

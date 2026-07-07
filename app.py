@@ -264,10 +264,11 @@ def get_fx():
 def api_prices():
     data = request.get_json(silent=True) or {}
     tickers = data.get("tickers", [])
+    force_refresh = data.get("force_refresh") is True
     if not isinstance(tickers, list) or not tickers:
         return jsonify({"error": "Nincs ticker megadva", "prices": {}, "errors": []}), 400
 
-    result = get_prices_for_tickers(tickers)
+    result = get_prices_for_tickers(tickers, force_refresh=force_refresh)
 
     uid = current_user_id()
     now = _ts()
@@ -291,7 +292,7 @@ def api_prices():
                 "price": cached_item.get("last_price"),
                 "currency": cached_item.get("last_price_currency") or cached_item.get("currency"),
                 "source": cached_item.get("last_price_source") or "stale",
-                "timestamp": cached_item.get("last_price_time") or now,
+                "timestamp": cached_item.get("last_price_time"),
                 "stale": True,
             }
 
@@ -308,6 +309,8 @@ def api_prices():
                 update_item_last_price(uid, ticker, pdata["price"], pdata["currency"], pdata["source"], pdata.get("timestamp", now))
             except Exception:
                 pass
+        if pdata.get("stale"):
+            continue
         try:
             existing_symbols = db.search_symbols_db(ticker)
             existing_symbol = next(

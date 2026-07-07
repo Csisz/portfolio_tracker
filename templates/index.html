@@ -13,7 +13,7 @@
 
     .container { max-width: 1020px; margin: 0 auto; padding: 24px 16px; }
 
-    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
     .card { background: #fff; border-radius: 10px; padding: 18px 20px; border: 1px solid #e8e8e0; }
     .card-label { font-size: 12px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
     .card-value { font-size: 26px; font-weight: 600; color: #1a1a2e; }
@@ -99,8 +99,9 @@
     .manual-grid { display: grid; grid-template-columns: 1fr 1fr 80px; gap: 10px; align-items: end; }
     .manual-grid-5 { display: grid; grid-template-columns: 1fr 1fr 100px 100px 90px; gap: 10px; align-items: end; }
     .purchase-grid { display: grid; grid-template-columns: 150px 150px 150px; gap: 10px; align-items: end; margin-top: 10px; width: 100%; }
-    .purchase-inline { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
-    .purchase-inline input { width: 118px; padding: 5px 7px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; text-align: right; }
+    .cost-inline { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+    .cost-inline input { width: 88px; padding: 7px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; text-align: right; }
+    .cost-inline input:focus { border-color: #1a1a2e; outline: none; }
     .purchase-missing { font-size: 11px; color: #9ca3af; margin-top: 3px; }
     .field-hint { font-size: 11px; color: #9ca3af; margin-top: 3px; line-height: 1.35; }
     .form-error { font-size: 12px; color: #b91c1c; margin-top: 6px; display: none; width: 100%; }
@@ -176,11 +177,11 @@
     .comp-value { font-size: 17px; font-weight: 600; color: #1a1a2e; }
     .comp-sub { font-size: 11px; color: #aaa; margin-top: 2px; }
 
-    .table-wrap { background: #fff; border-radius: 10px; border: 1px solid #e8e8e0; overflow: hidden; }
-    table { width: 100%; border-collapse: collapse; }
-    thead th { font-size: 12px; color: #888; font-weight: 500; padding: 10px 14px; text-align: left; border-bottom: 1px solid #eee; background: #fafaf7; }
+    .table-wrap { background: #fff; border-radius: 10px; border: 1px solid #e8e8e0; overflow-x: auto; overflow-y: visible; }
+    table { width: 100%; min-width: 860px; border-collapse: collapse; }
+    thead th { font-size: 12px; color: #888; font-weight: 500; padding: 9px 10px; text-align: left; border-bottom: 1px solid #eee; background: #fafaf7; white-space: nowrap; }
     thead th.num { text-align: right; }
-    tbody td { padding: 12px 14px; border-bottom: 1px solid #f0f0e8; font-size: 14px; vertical-align: middle; }
+    tbody td { padding: 10px; border-bottom: 1px solid #f0f0e8; font-size: 14px; vertical-align: middle; }
     tbody tr:last-child td { border-bottom: none; }
     tbody tr:hover { background: #fafaf7; }
     td.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -198,13 +199,13 @@
     .qty-display { cursor: pointer; padding: 3px 7px; border-radius: 5px; border: 1px solid transparent; }
     .qty-display:hover { border-color: #ddd; background: #f5f5ee; }
     .qty-edit { width: 70px; padding: 3px 7px; border: 1.5px solid #1a1a2e; border-radius: 5px; font-size: 14px; text-align: right; outline: none; display: none; }
-    .order-controls { display: flex; justify-content: center; gap: 4px; }
-    .btn-order { width: 30px; height: 28px; border: 1px solid #ddd; border-radius: 6px; background: #fff; color: #374151; cursor: pointer; font-size: 13px; line-height: 1; }
+    .order-controls { display: flex; justify-content: center; gap: 5px; }
+    .btn-order { width: 34px; height: 32px; border: 1px solid #cfd4dc; border-radius: 6px; background: #fff; color: #1f2937; cursor: pointer; font-size: 15px; line-height: 1; }
     .btn-order:hover:not(:disabled) { background: #f3f4f6; border-color: #bbb; }
     .btn-order:disabled { opacity: 0.35; cursor: default; }
 
-    .btn-del { background: none; border: none; cursor: pointer; color: #ddd; font-size: 20px; padding: 2px 6px; border-radius: 4px; line-height: 1; }
-    .btn-del:hover { color: #dc2626; background: #fee2e2; }
+    .btn-del { min-width: 38px; height: 34px; border: 1px solid #fecaca; background: #fff; cursor: pointer; color: #b91c1c; font-size: 20px; padding: 2px 8px; border-radius: 6px; line-height: 1; font-weight: 700; }
+    .btn-del:hover { color: #fff; background: #dc2626; border-color: #dc2626; }
 
     .loading-cell { color: #bbb; font-style: italic; }
     .error-cell { color: #dc2626; font-size: 12px; }
@@ -219,7 +220,6 @@
 
     @media (max-width: 680px) {
       .summary-grid { grid-template-columns: 1fr 1fr; }
-      thead th:nth-child(5), tbody td:nth-child(5) { display: none; }
       .selected-stock-box.visible { flex-direction: column; align-items: flex-start; }
       .manual-grid-5 { grid-template-columns: 1fr 1fr; }
       .purchase-grid { grid-template-columns: 1fr; }
@@ -250,21 +250,6 @@
       <div class="card-label">Összesen (EUR)</div>
       <div class="card-value" id="total-eur">–</div>
       <div class="card-sub">euró</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Befektetett ertek</div>
-      <div class="card-value" id="total-invested">-</div>
-      <div class="card-sub">bekerulesi ar alapjan</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Nyereseg / veszteseg</div>
-      <div class="card-value" id="total-pl">-</div>
-      <div class="card-sub">aktualis - bekerulesi</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Teljes hozam</div>
-      <div class="card-value" id="total-return">-</div>
-      <div class="card-sub">befektetett ertekre vetitve</div>
     </div>
   </div>
 
@@ -331,7 +316,7 @@
         <div class="form-group">
           <label>Vételi ár</label>
           <input type="number" class="form-input" id="sel-purchase-price" min="0" step="any">
-          <div class="field-hint">Alapbol az aktualis arfolyam, de atirhatod a tenyleges veteli arra.</div>
+          <div class="field-hint">Alapból az aktuális árfolyam, de átírhatod a tényleges vételi árra.</div>
         </div>
         <div class="form-group">
           <label>Vételi költség</label>
@@ -379,7 +364,7 @@
           <div class="form-group">
             <label>Vételi ár</label>
             <input type="number" class="form-input" id="m-purchase-price" min="0" step="any">
-            <div class="field-hint">Alapbol az aktualis arfolyam, de atirhatod a tenyleges veteli arra.</div>
+            <div class="field-hint">Alapból az aktuális árfolyam, de átírhatod a tényleges vételi árra.</div>
           </div>
           <div class="form-group">
             <label>Vételi költség</label>
@@ -472,7 +457,7 @@
     <span class="section-title">Részvényeim</span>
     <div class="section-btns">
       <a href="/api/export/xlsx" class="btn-excel" title="Excel letöltése">⬇ Excel</a>
-      <button class="btn-refresh" onclick="refreshAll()" id="refresh-btn">
+      <button class="btn-refresh" onclick="refreshAll(true)" id="refresh-btn">
         ↻ Frissítés
       </button>
     </div>
@@ -488,17 +473,12 @@
           <th class="num">Árfolyam / Forrás</th>
           <th class="num">Érték (saját deviza)</th>
           <th class="num">Érték (HUF)</th>
-          <th class="num">Vétel dátuma</th>
-          <th class="num">Vételi ár</th>
-          <th class="num">Vételi költség</th>
-          <th class="num">Befektetett ertek</th>
-          <th class="num">Nyereseg / veszteseg</th>
-          <th class="num">Hozam %</th>
-          <th></th>
+          <th class="num">Költség</th>
+          <th>Törlés</th>
         </tr>
       </thead>
       <tbody id="stocks-tbody">
-        <tr><td colspan="13" class="loading-cell" style="padding:20px;text-align:center">Betöltés...</td></tr>
+        <tr><td colspan="8" class="loading-cell" style="padding:20px;text-align:center">Betöltés...</td></tr>
       </tbody>
     </table>
   </div>
@@ -548,7 +528,7 @@
       updateAlertFormVisibility();
       loadAlerts();
     }
-    refreshAll();
+    refreshAll(false);
   };
 
   // ========== AUTOMATIKUS FRISSÍTÉS ==========
@@ -564,7 +544,7 @@
     autoRefreshTimer = null;
     if (autoRefreshSeconds > 0) {
       autoRefreshTimer = setInterval(() => {
-        if (!document.hidden) refreshAll();
+        if (!document.hidden) refreshAll(false);
       }, autoRefreshSeconds * 1000);
     }
   }
@@ -701,14 +681,14 @@
   }
 
   // ========== RÉSZVÉNYÁRFOLYAM ==========
-  async function loadPrices() {
+  async function loadPrices(forceRefresh = false) {
     const tickers = portfolio.map(s => s.ticker);
     if (!tickers.length) return;
     try {
       const r = await apiFetch('/api/prices', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({tickers})
+        body: JSON.stringify({tickers, force_refresh: Boolean(forceRefresh)})
       });
       if (!r) return;  // 401 → átirányítás folyamatban
       if (!r.ok) {
@@ -739,7 +719,7 @@
   }
 
   // ========== REFRESH ==========
-  async function refreshAll() {
+  async function refreshAll(forceRefresh = false) {
     if (refreshInProgress) return;
     refreshInProgress = true;
     const btn = document.getElementById('refresh-btn');
@@ -747,7 +727,7 @@
     btn.disabled = true;
     clearBanner();
     try {
-      await Promise.all([loadFx(), loadPrices()]);
+      await Promise.all([loadFx(), loadPrices(forceRefresh)]);
       renderFxBar();
       renderTable();
       calcTotals();
@@ -866,24 +846,14 @@
   function renderTable() {
     const tbody = document.getElementById('stocks-tbody');
     if (!portfolio.length) {
-      tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#bbb;padding:24px">Még nincs részvény. Keress egyet fent!</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#bbb;padding:24px">Még nincs részvény. Keress egyet fent!</td></tr>';
       return;
     }
     tbody.innerHTML = portfolio.map((s, i) => {
-      const p = prices[s.ticker];
-      const price = p ? p.price : null;
-      const currency = (p ? p.currency : null) || s.currency || null;
-      const val = (price != null) ? price * s.qty : null;
-
-      let valHUF = null;
-      if (val != null && currency) {
-        const c = currency.toUpperCase();
-        if (c === 'HUF') valHUF = val;
-        else if (fx[c + '/HUF']) valHUF = val * fx[c + '/HUF'];
-        // GBp pence kezelés
-        else if ((c === 'GBP' || c === 'GBX') && fx['GBP/HUF']) valHUF = val * fx['GBP/HUF'] / 100;
-      }
-
+      const m = getPositionMetrics(s);
+      const p = m.p;
+      const price = m.price;
+      const currency = m.currency;
       const tagCls = currency ? ('tag-' + currency.toLowerCase()) : 'tag-other';
       const tag = currency ? `<span class="currency-tag ${tagCls}">${currency}</span>` : '';
 
@@ -892,7 +862,7 @@
       let priceStr;
       if (p && price != null) {
         const priceFormatted = price.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 4}) + ' ' + (currency || '');
-        const staleMark = stale ? ' <span class="warn-cell">(régi)</span>' : '';
+        const staleMark = stale ? ' <span class="warn-cell">(régi adat)</span>' : '';
         priceStr = priceFormatted + staleMark
           + (srcLabel ? `<span class="src-badge">${srcLabel}</span>` : '');
       } else if (p === undefined) {
@@ -901,32 +871,40 @@
         priceStr = '<span class="error-cell">Árfolyam most nem elérhető</span>';
       }
 
-      const valStr = val != null ? Math.round(val).toLocaleString('hu-HU') + ' ' + (currency || '') : '–';
+      const valStr = m.currentValue != null ? fmtMoney(m.currentValue, currency) : '–';
       let hufStr;
-      if (valHUF != null) {
-        hufStr = Math.round(valHUF).toLocaleString('hu-HU') + ' Ft';
-      } else if (val != null) {
+      if (m.currentHuf != null) {
+        hufStr = fmtMoney(m.currentHuf, 'HUF');
+      } else if (m.currentValue != null) {
         hufStr = '<span class="warn-cell">? (devizaárfolyam hiányzik)</span>';
       } else {
         hufStr = '–';
       }
 
       const itemId = s.id || null;
+      const purchaseCostVal = s.purchase_cost != null && s.purchase_cost !== '' ? s.purchase_cost : '';
       return `<tr>
+        <td class="num"><div class="order-controls">
+          <button class="btn-order" onclick="movePortfolioRow(${i}, -1)" title="Fel" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="btn-order" onclick="movePortfolioRow(${i}, 1)" title="Le" ${i === portfolio.length - 1 ? 'disabled' : ''}>↓</button>
+        </div></td>
         <td>
-          <div class="ticker-badge">${s.ticker}${tag}</div>
-          <div class="stock-name">${s.name || ''}</div>
+          <div class="ticker-badge">${escapeHtml(s.ticker)}${tag}</div>
+          <div class="stock-name">${escapeHtml(s.name || '')}</div>
         </td>
         <td class="num">
           <div class="qty-cell">
-            <span class="qty-display" onclick="startEditQty(${i})" title="Kattints a módosításhoz">${s.qty}</span>
-            <input class="qty-edit" id="qty-edit-${i}" type="number" value="${s.qty}" min="0.001" step="any"
+            <span class="qty-display" onclick="startEditQty(${i})" title="Kattints a módosításhoz">${escapeHtml(s.qty)}</span>
+            <input class="qty-edit" id="qty-edit-${i}" type="number" value="${escapeHtml(s.qty)}" min="0.001" step="any"
                    onblur="saveQty(${i})" onkeydown="qtyKeydown(event,${i})">
           </div>
         </td>
         <td class="num">${priceStr}</td>
         <td class="num">${valStr}</td>
         <td class="num">${hufStr}</td>
+        <td class="num"><div class="cost-inline">
+          <input id="purchase-cost-${i}" type="number" min="0" step="any" value="${escapeHtml(purchaseCostVal)}" onblur="savePurchaseCost(${i})" placeholder="0" title="Opcionális vételi költség">
+        </div></td>
         <td><button class="btn-del" onclick="removeStock(${i},${itemId})" title="Törlés">×</button></td>
       </tr>`;
     }).join('');
@@ -1320,8 +1298,16 @@
     document.getElementById('sel-name').textContent = name;
     document.getElementById('sel-exch').textContent = (exchange ? 'Tőzsde: ' + exchange : '') + (currency ? ' · ' + currency : '');
     document.getElementById('sel-qty').value = 1;
+    const priceEl = document.getElementById('sel-purchase-price');
+    if (priceEl) priceEl.value = '';
+    const dateEl = document.getElementById('sel-purchase-date');
+    if (dateEl) dateEl.value = '';
+    const costEl = document.getElementById('sel-purchase-cost');
+    if (costEl) costEl.value = '';
     setAddError('sel', '');
     document.getElementById('selected-stock-box').classList.add('visible');
+    setSelectedCurrentPriceLoading();
+    prefillCurrentPurchasePrice('sel', ticker);
     setTimeout(() => { const q = document.getElementById('sel-qty'); q.focus(); q.select(); }, 80);
   }
 
@@ -1396,25 +1382,22 @@
     const currency = document.getElementById('m-currency').value.trim().toUpperCase();
     const exchange = document.getElementById('m-exchange').value.trim();
     const qty    = parseFloat(document.getElementById('m-qty').value);
-    const status = document.getElementById('manual-status');
 
-    if (!ticker) { setManualStatus('err', 'A Ticker mező kötelező.'); return; }
-    if (!qty || qty <= 0) { setManualStatus('err', 'Érvénytelen darabszám.'); return; }
+    if (!ticker) { setManualStatus('err', 'A ticker mező kötelező.'); return; }
+    if (!validateAddInputs('m', qty)) return;
 
     setManualStatus('warn', 'Feldolgozás...');
     try {
       const r = await apiFetch('/api/add_manual', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ticker, name, currency, exchange, qty})
+        body: JSON.stringify({ticker, name, currency, exchange, qty, ...getPurchasePayload('m')})
       });
       if (!r) return;
       const d = await r.json();
       if (!d.ok) { setManualStatus('err', d.error || 'Hiba.'); return; }
-      const msg = d.warning
-        ? `✓ ${d.ticker} hozzáadva. ⚠️ ${d.warning}`
-        : `✓ ${d.ticker} (${d.name}) sikeresen hozzáadva.`;
-      setManualStatus(d.warning ? 'warn' : 'ok', msg);
+      const msg = d.message || d.warning || `${d.ticker} sikeresen hozzáadva.`;
+      setManualStatus(d.warning && !d.message ? 'warn' : 'ok', msg);
       // Portfólió friss betöltés
       const resp = await apiFetch('/api/portfolio');
       if (resp) portfolio = await resp.json();
@@ -1483,7 +1466,7 @@
 
   function validateAddInputs(prefix, qty) {
     if (!qty || qty <= 0) {
-      const msg = 'Adj meg ervenyes darabszamot.';
+      const msg = 'Adj meg érvényes darabszámot.';
       if (prefix === 'm') setManualStatus('err', msg);
       else setAddError(prefix, msg);
       return false;
@@ -1491,7 +1474,7 @@
     const priceEl = document.getElementById(prefix + '-purchase-price');
     const price = priceEl && priceEl.value !== '' ? Number(priceEl.value) : null;
     if (!Number.isFinite(price) || price <= 0) {
-      const msg = 'Adj meg ervenyes veteli arat.';
+      const msg = 'Adj meg érvényes vételi árat.';
       if (prefix === 'm') setManualStatus('err', msg);
       else setAddError(prefix, msg);
       return false;
@@ -1499,7 +1482,7 @@
     const costEl = document.getElementById(prefix + '-purchase-cost');
     const cost = costEl && costEl.value !== '' ? Number(costEl.value) : null;
     if (cost != null && (!Number.isFinite(cost) || cost < 0)) {
-      const msg = 'A veteli koltseg nem lehet negativ.';
+      const msg = 'A vételi költség nem lehet negatív.';
       if (prefix === 'm') setManualStatus('err', msg);
       else setAddError(prefix, msg);
       return false;
@@ -1511,9 +1494,9 @@
   function addPriceSourceLabel(p) {
     const src = String((p && p.source) || '');
     if ((p && p.stale) || src === 'stale' || src.toLowerCase().includes('cache')) {
-      return 'Forras: cache / utolso ismert arfolyam';
+      return 'Forrás: cache / utolsó ismert árfolyam';
     }
-    return src ? 'Forras: ' + src : '';
+    return src ? 'Forrás: ' + src : '';
   }
 
   function normalizeDisplayTicker(ticker) {
@@ -1537,20 +1520,20 @@
     if (!el) return;
     if (!p || p.price == null) {
       el.className = 'sel-price warn';
-      el.textContent = 'Az aktualis arfolyam most nem elerheto. Add meg kezzel a veteli arat.';
+      el.textContent = 'Az aktuális árfolyam most nem elérhető. Add meg kézzel a vételi árat.';
       return;
     }
     const c = (p.currency || currency || selectedStock?.currency || '').toUpperCase();
     const price = Number(p.price);
     el.className = 'sel-price';
-    el.innerHTML = `Aktualis arfolyam: ${fmtMoney(price, c)}${addPriceSourceLabel(p) ? `<br><span class="src-badge">${addPriceSourceLabel(p)}</span>` : ''}`;
+    el.innerHTML = `Aktuális árfolyam: ${fmtMoney(price, c)}${addPriceSourceLabel(p) ? `<br><span class="src-badge">${addPriceSourceLabel(p)}</span>` : ''}`;
   }
 
   function setSelectedCurrentPriceLoading() {
     const el = document.getElementById('sel-current-price');
     if (!el) return;
     el.className = 'sel-price';
-    el.textContent = 'Aktualis arfolyam betoltese...';
+    el.textContent = 'Aktuális árfolyam betöltése...';
   }
 
   async function prefillCurrentPurchasePrice(prefix, ticker) {
@@ -1564,14 +1547,14 @@
       });
       if (!r || !r.ok) {
         if (prefix === 'sel') setSelectedCurrentPrice(null);
-        else if (prefix === 'm') setManualStatus('warn', 'Az aktualis arfolyam most nem elerheto. Add meg kezzel a veteli arat.');
+        else if (prefix === 'm') setManualStatus('warn', 'Az aktuális árfolyam most nem elérhető. Add meg kézzel a vételi árat.');
         return;
       }
       const d = await r.json();
       const p = findPriceEntry(d.prices, ticker);
       if (!p || p.price == null) {
         if (prefix === 'sel') setSelectedCurrentPrice(null);
-        else if (prefix === 'm') setManualStatus('warn', 'Az aktualis arfolyam most nem elerheto. Add meg kezzel a veteli arat.');
+        else if (prefix === 'm') setManualStatus('warn', 'Az aktuális árfolyam most nem elérhető. Add meg kézzel a vételi árat.');
         return;
       }
       const priceEl = document.getElementById(prefix + '-purchase-price');
@@ -1579,128 +1562,25 @@
       if (prefix === 'sel') setSelectedCurrentPrice(p);
       if (priceEl && !priceEl.value && Number.isFinite(price) && price > 0) priceEl.value = price;
       if (prefix === 'm' && Number.isFinite(price) && price > 0) {
-        setManualStatus('ok', `Aktualis arfolyam: ${fmtMoney(price, p.currency || '')}. Atirhatod a tenyleges veteli arra.`);
+        setManualStatus('ok', `Aktuális árfolyam: ${fmtMoney(price, p.currency || '')}. Átírhatod a tényleges vételi árra.`);
       }
     } catch(e) {
       if (prefix === 'sel') setSelectedCurrentPrice(null);
-      else if (prefix === 'm') setManualStatus('warn', 'Az aktualis arfolyam most nem elerheto. Add meg kezzel a veteli arat.');
+      else if (prefix === 'm') setManualStatus('warn', 'Az aktuális árfolyam most nem elérhető. Add meg kézzel a vételi árat.');
     }
   }
 
-  const _selectStockBase = selectStock;
-  selectStock = function(ticker, name, exchange, type, currency) {
-    _selectStockBase(ticker, name, exchange, type, currency);
-    const priceEl = document.getElementById('sel-purchase-price');
-    if (priceEl) priceEl.value = '';
-    const dateEl = document.getElementById('sel-purchase-date');
-    if (dateEl) dateEl.value = '';
-    const costEl = document.getElementById('sel-purchase-cost');
-    if (costEl) costEl.value = '';
-    const currentEl = document.getElementById('sel-current-price');
-    if (currentEl) {
-      currentEl.className = 'sel-price';
-      currentEl.textContent = 'Aktualis arfolyam betoltese...';
-    }
-    setAddError('sel', '');
-    prefillCurrentPurchasePrice('sel', ticker);
-  };
-
-  const _confirmAddBase = confirmAdd;
-  confirmAdd = async function() {
-    if (!selectedStock) return;
-    const qty = parseFloat(document.getElementById('sel-qty').value);
-    if (!validateAddInputs('sel', qty)) return;
-    const payload = {
-      ticker: selectedStock.ticker,
-      name: selectedStock.name || selectedStock.ticker,
-      qty,
-      currency: selectedStock.currency || '',
-      exchange: selectedStock.exchange || '',
-      ...getPurchasePayload('sel')
-    };
-    const r = await apiFetch('/api/add_manual', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-    if (!r) return;
-    if (!r.ok) {
-      let err = 'Hiba a hozzaadasnal.';
-      try {
-        const d = await r.json();
-        err = d.error || err;
-      } catch(e) {}
-      setAddError('sel', err);
-      return;
-    }
-    const d = await r.json();
-    if (d.message) appendBanner(d.message);
-    else if (d.warning) appendBanner(d.warning);
-    cancelSelection();
-    const pr = await apiFetch('/api/portfolio');
-    if (pr) portfolio = await pr.json();
-    renderTable();
-    await loadPrices();
-    renderTable();
-    calcTotals();
-    calcComposition();
-    loadRecent();
-  };
-
-  const _submitManualBase = submitManual;
-  submitManual = async function() {
-    const ticker = document.getElementById('m-ticker').value.trim().toUpperCase();
-    const name = document.getElementById('m-name').value.trim();
-    const currency = document.getElementById('m-currency').value.trim().toUpperCase();
-    const exchange = document.getElementById('m-exchange').value.trim();
-    const qty = parseFloat(document.getElementById('m-qty').value);
-    if (!ticker) { setManualStatus('err', 'A ticker mezo kotelezo.'); return; }
-    if (!validateAddInputs('m', qty)) return;
-    setManualStatus('warn', 'Feldolgozas...');
-    try {
-      const r = await apiFetch('/api/add_manual', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ticker, name, currency, exchange, qty, ...getPurchasePayload('m')})
-      });
-      if (!r) return;
-      const d = await r.json();
-      if (!d.ok) { setManualStatus('err', d.error || 'Hiba.'); return; }
-      const msg = d.message || d.warning || `${d.ticker} sikeresen hozzaadva.`;
-      setManualStatus(d.warning && !d.message ? 'warn' : 'ok', `OK ${msg}`);
-      const resp = await apiFetch('/api/portfolio');
-      if (resp) portfolio = await resp.json();
-      renderTable();
-      await loadPrices();
-      renderTable();
-      calcTotals();
-      calcComposition();
-      loadRecent();
-      ['m-ticker','m-name','m-currency','m-exchange','m-purchase-date','m-purchase-price','m-purchase-cost'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
-      });
-      document.getElementById('m-qty').value = '1';
-    } catch(e) {
-      setManualStatus('err', 'Halozati hiba - ellenorizd a szerver allapotat.');
-    }
-  };
-
-  async function savePurchaseFields(i) {
+  async function savePurchaseCost(i) {
     const item = portfolio[i];
     if (!item || !item.id) return;
-    const dateEl = document.getElementById('purchase-date-' + i);
-    const priceEl = document.getElementById('purchase-price-' + i);
     const costEl = document.getElementById('purchase-cost-' + i);
-    const price = priceEl && priceEl.value !== '' ? Number(priceEl.value) : null;
     const cost = costEl && costEl.value !== '' ? Number(costEl.value) : null;
     if (cost != null && (!Number.isFinite(cost) || cost < 0)) {
-      appendBanner('A veteli koltseg nem lehet negativ.');
+      appendBanner('A költség nem lehet negatív.');
+      if (costEl) costEl.value = item.purchase_cost != null ? item.purchase_cost : '';
       return;
     }
     const payload = {
-      purchase_date: dateEl && dateEl.value ? dateEl.value : null,
-      purchase_price: Number.isFinite(price) && price > 0 ? price : null,
       purchase_cost: Number.isFinite(cost) && cost >= 0 ? cost : null
     };
     const r = await apiFetch(`/api/portfolio/${item.id}`, {
@@ -1710,7 +1590,11 @@
     });
     if (!r) return;
     const d = await r.json();
-    if (!d.ok) { appendBanner(d.error || 'Veteli adatok mentese nem sikerult.'); return; }
+    if (!d.ok) {
+      appendBanner(d.error || 'A költség mentése nem sikerült.');
+      if (costEl) costEl.value = item.purchase_cost != null ? item.purchase_cost : '';
+      return;
+    }
     portfolio[i] = d.item || {...portfolio[i], ...payload};
     renderTable();
     calcTotals();
@@ -1743,119 +1627,13 @@
   }
 
   async function reloadPortfolioAfterOrderError() {
-    appendBanner('A sorrend mentese nem sikerult. Ujratoltom a portfoliot.');
+    appendBanner('A sorrend mentése nem sikerült. Újratöltöm a portfóliót.');
     const resp = await apiFetch('/api/portfolio');
     if (resp) portfolio = await resp.json();
     renderTable();
     calcTotals();
     calcComposition();
   }
-
-  renderTable = function() {
-    const tbody = document.getElementById('stocks-tbody');
-    if (!portfolio.length) {
-      tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#bbb;padding:24px">Meg nincs reszveny. Keress egyet fent!</td></tr>';
-      return;
-    }
-    tbody.innerHTML = portfolio.map((s, i) => {
-      const m = getPositionMetrics(s);
-      const p = m.p;
-      const currency = m.currency;
-      const tagCls = currency ? ('tag-' + currency.toLowerCase()) : 'tag-other';
-      const tag = currency ? `<span class="currency-tag ${tagCls}">${currency}</span>` : '';
-      const stale = p && p.stale === true;
-      const srcLabel = p ? (p.source || '').replace('Yahoo Finance', 'Yahoo').replace('/cache', ' (cache)') : '';
-      let priceStr = '-';
-      if (p && m.price != null) {
-        priceStr = m.price.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 4}) + ' ' + (currency || '')
-          + (stale ? ' <span class="warn-cell">(regi)</span>' : '')
-          + (srcLabel ? `<span class="src-badge">${srcLabel}</span>` : '');
-      } else if (p === undefined) {
-        priceStr = '<span class="loading-cell">-</span>';
-      } else {
-        priceStr = '<span class="error-cell">Arfolyam most nem erheto el</span>';
-      }
-      const currentStr = fmtMoney(m.currentValue, currency);
-      const hufStr = m.currentHuf != null ? fmtMoney(m.currentHuf, 'HUF') : (m.currentValue != null ? '<span class="warn-cell">? (devizaarfolyam hianyzik)</span>' : '-');
-      const investedStr = m.hasPurchase ? fmtMoney(m.investedValue, currency) : '<span class="metric-neutral">Adj meg veteli arat</span>';
-      const plClass = m.profitLoss == null ? 'metric-neutral' : (m.profitLoss >= 0 ? 'metric-positive' : 'metric-negative');
-      const plStr = m.profitLoss == null ? '-' : fmtMoney(m.profitLoss, currency);
-      const retStr = m.returnPct == null ? '-' : m.returnPct.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
-      const itemId = s.id || null;
-      const purchasePriceVal = m.hasPurchase ? m.purchasePrice : '';
-      const purchaseDateVal = s.purchase_date || '';
-      const purchaseCostVal = s.purchase_cost != null && s.purchase_cost !== '' ? s.purchase_cost : '';
-      return `<tr>
-        <td class="num"><div class="order-controls">
-          <button class="btn-order" onclick="movePortfolioRow(${i}, -1)" title="Fel" ${i === 0 ? 'disabled' : ''}>↑</button>
-          <button class="btn-order" onclick="movePortfolioRow(${i}, 1)" title="Le" ${i === portfolio.length - 1 ? 'disabled' : ''}>↓</button>
-        </div></td>
-        <td><div class="ticker-badge">${s.ticker}${tag}</div><div class="stock-name">${s.name || ''}</div></td>
-        <td class="num"><div class="qty-cell">
-          <span class="qty-display" onclick="startEditQty(${i})" title="Kattints a modositasahoz">${s.qty}</span>
-          <input class="qty-edit" id="qty-edit-${i}" type="number" value="${s.qty}" min="0.001" step="any" onblur="saveQty(${i})" onkeydown="qtyKeydown(event,${i})">
-        </div></td>
-        <td class="num">${priceStr}</td>
-        <td class="num">${currentStr}</td>
-        <td class="num">${hufStr}</td>
-        <td class="num"><div class="purchase-inline">
-          <input id="purchase-date-${i}" type="date" value="${purchaseDateVal}" onblur="savePurchaseFields(${i})">
-        </div></td>
-        <td class="num"><div class="purchase-inline">
-          <input id="purchase-price-${i}" type="number" min="0" step="any" value="${purchasePriceVal}" onblur="savePurchaseFields(${i})" placeholder="Adj meg veteli arat">
-        </div></td>
-        <td class="num"><div class="purchase-inline">
-          <input id="purchase-cost-${i}" type="number" min="0" step="any" value="${purchaseCostVal}" onblur="savePurchaseFields(${i})" placeholder="0">
-        </div></td>
-        <td class="num">${investedStr}</td>
-        <td class="num ${plClass}">${plStr}</td>
-        <td class="num ${plClass}">${retStr}</td>
-        <td><button class="btn-del" onclick="removeStock(${i},${itemId})" title="Torles">x</button></td>
-      </tr>`;
-    }).join('');
-    fillAlertTickerOptions();
-  };
-
-  calcTotals = function() {
-    let totalHUF = 0, totalCurrentWithPurchaseHUF = 0, totalInvestedHUF = 0;
-    let hasCurrent = false, hasInvested = false, hasCurrentWithPurchase = false;
-    portfolio.forEach(s => {
-      const m = getPositionMetrics(s);
-      if (m.currentHuf != null) { totalHUF += m.currentHuf; hasCurrent = true; }
-      if (m.investedHuf != null) {
-        totalInvestedHUF += m.investedHuf;
-        hasInvested = true;
-        if (m.currentHuf != null) {
-          totalCurrentWithPurchaseHUF += m.currentHuf;
-          hasCurrentWithPurchase = true;
-        }
-      }
-    });
-    if (hasCurrent) {
-      const totalUSD = fx['USD/HUF'] ? totalHUF / fx['USD/HUF'] : null;
-      const totalEUR = fx['EUR/HUF'] ? totalHUF / fx['EUR/HUF'] : null;
-      document.getElementById('total-huf').textContent = fmtMoney(Math.round(totalHUF), 'HUF');
-      document.getElementById('total-usd').textContent = totalUSD ? '$' + Math.round(totalUSD).toLocaleString('hu-HU') : '-';
-      document.getElementById('total-eur').textContent = totalEUR ? 'EUR ' + Math.round(totalEUR).toLocaleString('hu-HU') : '-';
-    }
-    document.getElementById('total-invested').textContent = hasInvested ? fmtMoney(Math.round(totalInvestedHUF), 'HUF') : '-';
-    const plEl = document.getElementById('total-pl');
-    const retEl = document.getElementById('total-return');
-    plEl.classList.remove('positive', 'negative');
-    retEl.classList.remove('positive', 'negative');
-    if (hasCurrentWithPurchase && hasInvested) {
-      const pl = totalCurrentWithPurchaseHUF - totalInvestedHUF;
-      const ret = totalInvestedHUF > 0 ? (pl / totalInvestedHUF) * 100 : null;
-      plEl.textContent = fmtMoney(Math.round(pl), 'HUF');
-      if (ret != null) retEl.textContent = ret.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
-      const cls = pl >= 0 ? 'positive' : 'negative';
-      plEl.classList.add(cls);
-      retEl.classList.add(cls);
-    } else {
-      plEl.textContent = '-';
-      retEl.textContent = '-';
-    }
-  };
 </script>
 </body>
 </html>

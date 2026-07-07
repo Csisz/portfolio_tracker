@@ -166,6 +166,38 @@ def test_get_last_price_yahoo_wins_over_stooq():
     assert source == "Yahoo Finance"
 
 
+def test_get_last_price_uses_memory_cache_when_not_forced():
+    from services import cache as svc_cache
+    svc_cache.set("price:AAPL", {"price": 100.0, "currency": "USD"}, 600)
+
+    with patch("services.stocks._fetch_price_yfinance") as mock_yahoo:
+        price, currency, source, stale = get_last_price("AAPL")
+
+    mock_yahoo.assert_not_called()
+    assert price == 100.0
+    assert currency == "USD"
+    assert source == "Yahoo Finance/cache"
+    assert stale is False
+    svc_cache.delete("price:AAPL")
+
+
+def test_get_last_price_force_refresh_skips_memory_cache():
+    from services import cache as svc_cache
+    svc_cache.set("price:AAPL", {"price": 100.0, "currency": "USD"}, 600)
+
+    with patch("services.stocks._fetch_price_yfinance", return_value=(200.0, "USD")) as mock_yahoo, \
+         patch("services.stocks._fetch_price_stooq") as mock_stooq:
+        price, currency, source, stale = get_last_price("AAPL", force_refresh=True)
+
+    mock_yahoo.assert_called_once_with("AAPL")
+    mock_stooq.assert_not_called()
+    assert price == 200.0
+    assert currency == "USD"
+    assert source == "Yahoo Finance"
+    assert stale is False
+    svc_cache.delete("price:AAPL")
+
+
 def test_get_last_price_returns_4_tuple():
     """get_last_price() mindig 4-elemet ad vissza."""
     from services import cache as svc_cache
@@ -209,6 +241,15 @@ def test_prices_for_tickers_stale_flag_in_response():
 
     assert "OTP.BD" in result["prices"]
     assert result["prices"]["OTP.BD"]["stale"] is True
+    assert result["prices"]["OTP.BD"]["timestamp"] is None
+
+
+def test_prices_for_tickers_passes_force_refresh_to_each_lookup():
+    with patch("services.stocks.get_last_price", return_value=(195.0, "USD", "Yahoo Finance", False)) as mocked:
+        result = get_prices_for_tickers(["AAPL"], force_refresh=True)
+
+    mocked.assert_called_once_with("AAPL", force_refresh=True)
+    assert result["prices"]["AAPL"]["price"] == 195.0
 
 
 def test_prices_for_tickers_no_stale_flag_when_live():

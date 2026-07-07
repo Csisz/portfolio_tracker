@@ -22,15 +22,35 @@ def test_mixed_currency_fx_missing_message_warns_about_incomplete_huf_total():
     html = _index_html()
     assert "function portfolioNeedsFx()" in html
     assert "Devizaárfolyam nem elérhető, ezért a HUF összesítés nem teljes." in html
-def test_purchase_profit_loss_ui_present():
+def test_main_portfolio_table_is_simple_and_keeps_purchase_data_inputs_elsewhere():
     html = _index_html()
+    assert html.count("function renderTable()") == 1
+    assert "renderTable = function()" not in html
+    assert html.count("function calcTotals()") == 1
+    assert "calcTotals = function()" not in html
+
     assert "purchase_price" in html
-    assert "total-invested" in html
-    assert "total-pl" in html
-    assert "total-return" in html
+    assert "total-invested" not in html
+    assert "total-pl" not in html
+    assert "total-return" not in html
+    assert 'colspan="8"' in html
+    assert "<th class=\"num\">Sorrend</th>" in html
+    assert "<th>Részvény</th>" in html
+    assert "<th class=\"num\">Darab" in html
+    assert "<th class=\"num\">Árfolyam / Forrás</th>" in html
+    assert "<th class=\"num\">Költség</th>" in html
+    assert "<th>Törlés</th>" in html
     assert "Vétel dátuma" in html
     assert "Vételi ár" in html
     assert "Vételi költség" in html
+    table_start = html.index("<!-- Portfólió táblázat -->")
+    table_end = html.index("</table>", table_start)
+    table_html = html[table_start:table_end]
+    assert "Vétel dátuma" not in table_html
+    assert "Vételi ár" not in table_html
+    assert "Befektetett" not in table_html
+    assert "Nyereség" not in table_html
+    assert "Hozam %" not in table_html
     assert "purchase_date" in html
     assert "purchase_cost" in html
     assert "purchase-date" in html
@@ -54,11 +74,26 @@ def test_manual_order_controls_present():
     assert "ordered_ids" in html
 
 
+def test_table_controls_use_id_delete_cost_and_force_refresh():
+    html = _index_html()
+    assert "removeStock(${i},${itemId})" in html
+    assert "delete(`/api/portfolio/${itemId}`" not in html
+    assert "savePurchaseCost" in html
+    assert "purchase_cost" in html
+    assert 'onclick="refreshAll(true)"' in html
+    assert "refreshAll(false)" in html
+    assert "force_refresh: Boolean(forceRefresh)" in html
+    table_css_start = html.index(".table-wrap")
+    table_css_end = html.index("table {", table_css_start)
+    assert "overflow: hidden" not in html[table_css_start:table_css_end]
+    assert "overflow-x: auto" in html[table_css_start:table_css_end]
+
+
 def test_add_stock_card_shows_current_price_and_requires_purchase_price():
     html = _index_html()
     assert 'id="sel-current-price"' in html
-    assert "Aktualis arfolyam" in html
-    assert "Forras: cache / utolso ismert arfolyam" in html
+    assert "Aktuális árfolyam" in html
+    assert "Forrás: cache / utolsó ismert árfolyam" in html
     assert "prefillCurrentPurchasePrice('sel', ticker)" in html
     assert "function normalizeDisplayTicker(ticker)" in html
     assert "OTP: 'OTP.BD'" in html
@@ -67,5 +102,5 @@ def test_add_stock_card_shows_current_price_and_requires_purchase_price():
     assert "body: JSON.stringify({tickers: [ticker]})" in html
     assert "validateAddInputs('sel', qty)" in html
     assert "validateAddInputs('m', qty)" in html
-    assert "Adj meg ervenyes veteli arat." in html
-    assert "Az aktualis arfolyam most nem elerheto. Add meg kezzel a veteli arat." in html
+    assert "Adj meg érvényes vételi árat." in html
+    assert "Az aktuális árfolyam most nem elérhető. Add meg kézzel a vételi árat." in html

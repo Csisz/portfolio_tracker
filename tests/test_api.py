@@ -212,7 +212,7 @@ def test_search_unknown_returns_200_not_500(client):
 # /api/prices
 # ===========================================================================
 
-def _mock_prices(tickers):
+def _mock_prices(tickers, force_refresh=False):
     prices = {}
     errors = []
     for t in tickers:
@@ -231,6 +231,15 @@ def test_prices_structure(client):
     d = r.get_json()
     assert "prices" in d
     assert "errors" in d
+
+
+def test_prices_passes_force_refresh_flag(client):
+    with patch("app.get_prices_for_tickers", return_value={
+        "prices": {}, "errors": [], "timestamp": "2026-06-04T10:00:00", "source": "none"
+    }) as mocked:
+        r = client.post("/api/prices", json={"tickers": ["AAPL"], "force_refresh": True})
+    assert r.status_code == 200
+    mocked.assert_called_once_with(["AAPL"], force_refresh=True)
 
 
 def test_prices_partial_failure(client):
@@ -278,6 +287,7 @@ def test_prices_uses_portfolio_last_price_cache_before_error(client):
     assert d["errors"] == []
     assert d["prices"]["OTP.BD"]["price"] == 40850.0
     assert d["prices"]["OTP.BD"]["stale"] is True
+    assert d["prices"]["OTP.BD"]["timestamp"] == "2026-06-05T10:00:00"
 
 
 # ===========================================================================
