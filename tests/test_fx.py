@@ -17,6 +17,7 @@ from services.fx import (
     get_mnb_current_fx,
     get_fx_rates,
     get_stooq_fx,
+    _yahoo_last_price,
 )
 
 
@@ -312,6 +313,25 @@ def test_stooq_eurhuf_fallback():
     assert "eurhuf" in mock_get.call_args[0][0]
 
 
+def test_yahoo_fx_intraday_quote_used():
+    import pandas as pd
+
+    fake_obj = MagicMock()
+    fake_obj.history.return_value = pd.DataFrame(
+        {"Close": [390.1, 390.5]},
+        index=pd.to_datetime(["2026-06-04 10:01:00+00:00", "2026-06-04 10:02:00+00:00"]),
+    )
+    fake_yf = MagicMock()
+    fake_yf.Ticker.return_value = fake_obj
+
+    quote = _yahoo_last_price(fake_yf, "EURHUF=X")
+
+    fake_obj.history.assert_called_with(period="1d", interval="1m", auto_adjust=False, prepost=False)
+    assert quote["price"] == 390.5
+    assert quote["quote_time"].startswith("2026-06-04T10:02:00")
+    assert quote["delayed"] is False
+
+
 def test_get_fx_rates_market_mode_returns_market_value():
     market = _fx_payload("market", 353.9, 304.21, "Yahoo Finance FX")
     official = _fx_payload("official", 355.14, 305.81, "MNB")
@@ -343,4 +363,4 @@ def test_get_fx_rates_auto_falls_back_to_mnb_when_market_fails():
     assert result["requested_mode"] == "auto"
     assert result["mode"] == "official"
     assert result["fx"]["EUR/HUF"] == 355.14
-    assert any("Piaci" in e for e in result["errors"])
+    assert any("piaci devizaárfolyam" in e for e in result["errors"])

@@ -13,7 +13,7 @@
 
     .container { max-width: 1020px; margin: 0 auto; padding: 24px 16px; }
 
-    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
     .card { background: #fff; border-radius: 10px; padding: 18px 20px; border: 1px solid #e8e8e0; }
     .card-label { font-size: 12px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
     .card-value { font-size: 26px; font-weight: 600; color: #1a1a2e; }
@@ -21,6 +21,7 @@
     .card-value.negative, .metric-negative { color: #dc2626; }
     .metric-neutral { color: #9ca3af; }
     .card-sub { font-size: 12px; color: #aaa; margin-top: 3px; }
+    .card-secondary { font-size: 12px; color: #777; margin-top: 6px; line-height: 1.45; }
 
     /* ===== DEVIZAÁRFOLYAM KÁRTYA ===== */
     .fx-bar { background: #fff; border: 1px solid #e8e8e0; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
@@ -188,6 +189,7 @@
 
     .ticker-badge { font-weight: 700; font-size: 13px; color: #1a1a2e; }
     .stock-name { font-size: 12px; color: #999; margin-top: 1px; }
+    .stock-purchase { font-size: 11px; color: #6b7280; line-height: 1.45; margin-top: 4px; }
     .currency-tag { display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-weight: 500; }
     .tag-usd { background: #dbeafe; color: #1e40af; }
     .tag-huf { background: #dcfce7; color: #166534; }
@@ -210,6 +212,10 @@
     .loading-cell { color: #bbb; font-style: italic; }
     .error-cell { color: #dc2626; font-size: 12px; }
     .warn-cell { color: #d97706; font-size: 12px; }
+    .cell-sub { display: block; color: #6b7280; font-size: 11px; line-height: 1.45; margin-top: 3px; }
+    .result-positive { color: #15803d; font-weight: 600; }
+    .result-negative { color: #dc2626; font-weight: 600; }
+    .result-neutral { color: #6b7280; }
 
     .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -237,20 +243,28 @@
   <!-- Összesítők -->
   <div class="summary-grid">
     <div class="card">
-      <div class="card-label">Összesen (HUF)</div>
+      <div class="card-label">Aktuális portfólióérték</div>
       <div class="card-value" id="total-huf">–</div>
-      <div class="card-sub">magyar forint</div>
+      <div class="card-secondary"><span id="total-usd">–</span> · <span id="total-eur">–</span></div>
     </div>
     <div class="card">
-      <div class="card-label">Összesen (USD)</div>
-      <div class="card-value" id="total-usd">–</div>
-      <div class="card-sub">dollár</div>
+      <div class="card-label">Befektetett érték</div>
+      <div class="card-value" id="total-invested">–</div>
+      <div class="card-sub">jelenlegi devizaárfolyamon</div>
     </div>
     <div class="card">
-      <div class="card-label">Összesen (EUR)</div>
-      <div class="card-value" id="total-eur">–</div>
-      <div class="card-sub">euró</div>
+      <div class="card-label">Nyereség / veszteség</div>
+      <div class="card-value" id="total-pl">–</div>
+      <div class="card-sub">jelenlegi devizaárfolyamon</div>
     </div>
+    <div class="card">
+      <div class="card-label">Teljes hozam</div>
+      <div class="card-value" id="total-return">–</div>
+      <div class="card-sub">saját devizás eredményekből</div>
+    </div>
+  </div>
+  <div class="manual-hint" style="margin:-12px 0 18px">
+    A HUF értékek a jelenlegi devizaárfolyamon számítva.
   </div>
 
   <!-- Valutasáv -->
@@ -470,9 +484,9 @@
           <th class="num">Sorrend</th>
           <th>Részvény</th>
           <th class="num">Darab <span style="font-size:10px;color:#bbb">(kattints)</span></th>
-          <th class="num">Árfolyam / Forrás</th>
-          <th class="num">Érték (saját deviza)</th>
-          <th class="num">Érték (HUF)</th>
+          <th class="num">Aktuális ár / forrás</th>
+          <th class="num">Aktuális érték</th>
+          <th class="num">Eredmény</th>
           <th class="num">Költség</th>
           <th>Törlés</th>
         </tr>
@@ -584,7 +598,7 @@
       if (d.errors && d.errors.length) {
         if (portfolioNeedsFx()) {
           if ((fxRequestedMode === 'market' || fxRequestedMode === 'auto') && fxMode === 'official') {
-            appendBanner('Piaci árfolyam nem elérhető, MNB hivatalos napi árfolyamot használunk.');
+            appendBanner('A piaci devizaárfolyam jelenleg nem érhető el. A HUF-átváltáshoz az MNB legutóbbi hivatalos napi árfolyamát használjuk.');
           } else if ((d.source || '').includes('cache')) {
             appendBanner('Élő devizaárfolyam nem elérhető – az utolsó ismert árfolyamot használjuk.');
           } else if (d.source === 'none') {
@@ -736,7 +750,7 @@
       if (alertsEnabled) await checkAlerts(false);
       const now = new Date();
       document.getElementById('update-info').textContent =
-        'Frissítve: ' + now.toLocaleTimeString('hu-HU', {hour:'2-digit', minute:'2-digit'});
+        'Adatok lekérve: ' + now.toLocaleTimeString('hu-HU', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
       updateAutoRefreshStatus();
     } finally {
       btn.innerHTML = '↻ Frissítés';
@@ -798,6 +812,32 @@
     return value.toLocaleString('hu-HU', opts) + suffix;
   }
 
+  function fmtDateTime(value) {
+    if (!value) return '';
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleString('hu-HU', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+    }
+    return String(value).replace('T', ' ').substring(0, 16);
+  }
+
+  function fmtDate(value) {
+    if (!value) return '';
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString('hu-HU', {year:'numeric', month:'2-digit', day:'2-digit'});
+    }
+    return String(value);
+  }
+
+  function priceStateText(p) {
+    if (!p) return '';
+    if (p.stale) return 'Régi adat' + (p.quote_time ? ': ' + fmtDateTime(p.quote_time) : '');
+    if (p.delayed) return p.market_state === 'CLOSED' ? 'Piac zárva – utolsó elérhető ár' : 'Késleltetett adat';
+    if ((p.source || '').includes('cache')) return 'Cache-ből';
+    return 'Legfrissebb elérhető árfolyam';
+  }
+
   function toHufValue(value, currency) {
     if (value == null || !Number.isFinite(value)) return null;
     const c = String(currency || '').toUpperCase();
@@ -857,14 +897,17 @@
       const tagCls = currency ? ('tag-' + currency.toLowerCase()) : 'tag-other';
       const tag = currency ? `<span class="currency-tag ${tagCls}">${currency}</span>` : '';
 
-      const stale = p && p.stale === true;
       const srcLabel = p ? (p.source || '').replace('Yahoo Finance', 'Yahoo').replace('/cache', ' (cache)').replace('/részleges cache', '') : '';
       let priceStr;
       if (p && price != null) {
         const priceFormatted = price.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 4}) + ' ' + (currency || '');
-        const staleMark = stale ? ' <span class="warn-cell">(régi adat)</span>' : '';
-        priceStr = priceFormatted + staleMark
-          + (srcLabel ? `<span class="src-badge">${srcLabel}</span>` : '');
+        const quoteTime = p.quote_time || p.timestamp;
+        const timeHtml = quoteTime ? `<span class="cell-sub">Árfolyam időpontja: ${fmtDateTime(quoteTime)}</span>` : '';
+        const state = priceStateText(p);
+        priceStr = priceFormatted
+          + (srcLabel ? `<span class="src-badge">${srcLabel}</span>` : '')
+          + timeHtml
+          + (state ? `<span class="cell-sub">${state}</span>` : '');
       } else if (p === undefined) {
         priceStr = '<span class="loading-cell">–</span>';
       } else {
@@ -874,11 +917,20 @@
       const valStr = m.currentValue != null ? fmtMoney(m.currentValue, currency) : '–';
       let hufStr;
       if (m.currentHuf != null) {
-        hufStr = fmtMoney(m.currentHuf, 'HUF');
+        hufStr = currency && String(currency).toUpperCase() !== 'HUF' ? `<span class="cell-sub">${fmtMoney(m.currentHuf, 'HUF')}</span>` : '';
       } else if (m.currentValue != null) {
         hufStr = '<span class="warn-cell">? (devizaárfolyam hiányzik)</span>';
       } else {
-        hufStr = '–';
+        hufStr = '';
+      }
+      const purchaseInfo = m.hasPurchase
+        ? `<div class="stock-purchase">Vételi ár: ${fmtMoney(m.purchasePrice, currency)}${s.purchase_date ? `<br>Vétel: ${fmtDate(s.purchase_date)}` : ''}</div>`
+        : '<div class="stock-purchase">Vételi ár nincs megadva</div>';
+      let resultStr = '<span class="result-neutral">Vételi ár nincs megadva</span>';
+      if (m.profitLoss != null) {
+        const cls = m.profitLoss > 0 ? 'result-positive' : (m.profitLoss < 0 ? 'result-negative' : 'result-neutral');
+        const pct = m.returnPct != null ? m.returnPct.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%' : '-';
+        resultStr = `<span class="${cls}">${fmtMoney(m.profitLoss, currency)}</span><span class="cell-sub">${pct}</span>`;
       }
 
       const itemId = s.id || null;
@@ -891,6 +943,7 @@
         <td>
           <div class="ticker-badge">${escapeHtml(s.ticker)}${tag}</div>
           <div class="stock-name">${escapeHtml(s.name || '')}</div>
+          ${purchaseInfo}
         </td>
         <td class="num">
           <div class="qty-cell">
@@ -900,8 +953,8 @@
           </div>
         </td>
         <td class="num">${priceStr}</td>
-        <td class="num">${valStr}</td>
-        <td class="num">${hufStr}</td>
+        <td class="num">${valStr}${hufStr}</td>
+        <td class="num">${resultStr}</td>
         <td class="num"><div class="cost-inline">
           <input id="purchase-cost-${i}" type="number" min="0" step="any" value="${escapeHtml(purchaseCostVal)}" onblur="savePurchaseCost(${i})" placeholder="0" title="Opcionális vételi költség">
         </div></td>
@@ -912,17 +965,22 @@
   }
 
   function calcTotals() {
-    let totalHUF = 0, hasData = false;
+    let totalHUF = 0, totalInvestedHUF = 0, totalCurrentWithPurchaseHUF = 0;
+    let totalInvestedOwn = 0, totalProfitOwn = 0;
+    let hasData = false, hasInvested = false, hasOwnReturn = false;
     portfolio.forEach(s => {
-      const p = prices[s.ticker];
-      if (!p || p.price == null) return;
-      const val = p.price * s.qty;
-      const c = (p.currency || s.currency || '').toUpperCase();
-      let huf = 0;
-      if (c === 'HUF') huf = val;
-      else if (fx[c + '/HUF']) huf = val * fx[c + '/HUF'];
-      else if ((c === 'GBP' || c === 'GBX') && fx['GBP/HUF']) huf = val * fx['GBP/HUF'] / 100;
-      if (huf) { totalHUF += huf; hasData = true; }
+      const m = getPositionMetrics(s);
+      if (m.currentHuf != null) { totalHUF += m.currentHuf; hasData = true; }
+      if (m.investedHuf != null) {
+        totalInvestedHUF += m.investedHuf;
+        hasInvested = true;
+        if (m.currentHuf != null) totalCurrentWithPurchaseHUF += m.currentHuf;
+      }
+      if (m.investedValue != null && m.profitLoss != null) {
+        totalInvestedOwn += m.investedValue;
+        totalProfitOwn += m.profitLoss;
+        hasOwnReturn = true;
+      }
     });
     if (!hasData) return;
     const totalUSD = fx['USD/HUF'] ? totalHUF / fx['USD/HUF'] : null;
@@ -930,6 +988,27 @@
     document.getElementById('total-huf').textContent = Math.round(totalHUF).toLocaleString('hu-HU') + ' Ft';
     document.getElementById('total-usd').textContent = totalUSD ? '$' + Math.round(totalUSD).toLocaleString('hu-HU') : '–';
     document.getElementById('total-eur').textContent = totalEUR ? '€' + Math.round(totalEUR).toLocaleString('hu-HU') : '–';
+    document.getElementById('total-invested').textContent = hasInvested ? fmtMoney(Math.round(totalInvestedHUF), 'HUF') : '–';
+    const pl = hasInvested ? totalCurrentWithPurchaseHUF - totalInvestedHUF : null;
+    const plEl = document.getElementById('total-pl');
+    const retEl = document.getElementById('total-return');
+    plEl.classList.remove('positive', 'negative');
+    retEl.classList.remove('positive', 'negative');
+    if (pl != null) {
+      plEl.textContent = fmtMoney(Math.round(pl), 'HUF');
+      if (pl > 0) plEl.classList.add('positive');
+      if (pl < 0) plEl.classList.add('negative');
+    } else {
+      plEl.textContent = '–';
+    }
+    if (hasOwnReturn && totalInvestedOwn > 0) {
+      const ret = (totalProfitOwn / totalInvestedOwn) * 100;
+      retEl.textContent = ret.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
+      if (ret > 0) retEl.classList.add('positive');
+      if (ret < 0) retEl.classList.add('negative');
+    } else {
+      retEl.textContent = '–';
+    }
   }
 
   // ========== QTY SZERKESZTÉS ==========

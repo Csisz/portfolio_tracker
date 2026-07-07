@@ -291,9 +291,13 @@ def api_prices():
             prices[response_ticker] = {
                 "price": cached_item.get("last_price"),
                 "currency": cached_item.get("last_price_currency") or cached_item.get("currency"),
-                "source": cached_item.get("last_price_source") or "stale",
+                "source": "Utolsó ismert árfolyam",
+                "quote_time": cached_item.get("last_price_time"),
+                "received_at": now,
                 "timestamp": cached_item.get("last_price_time"),
                 "stale": True,
+                "delayed": True,
+                "market_state": "UNKNOWN",
             }
 
     if result.get("errors"):
@@ -306,7 +310,7 @@ def api_prices():
     for ticker, pdata in result.get("prices", {}).items():
         if not pdata.get("stale"):
             try:
-                update_item_last_price(uid, ticker, pdata["price"], pdata["currency"], pdata["source"], pdata.get("timestamp", now))
+                update_item_last_price(uid, ticker, pdata["price"], pdata["currency"], pdata["source"], pdata.get("quote_time") or pdata.get("timestamp"))
             except Exception:
                 pass
         if pdata.get("stale"):
@@ -326,7 +330,7 @@ def api_prices():
                 "query_aliases": existing_symbol.get("query_aliases") or [ticker.lower()],
                 "last_price": pdata.get("price"),
                 "last_price_currency": pdata.get("currency"),
-                "last_price_time": pdata.get("timestamp", now),
+                "last_price_time": pdata.get("quote_time") or pdata.get("timestamp"),
             })
         except Exception:
             pass
@@ -561,7 +565,7 @@ def api_add_manual():
         "query_aliases": [ticker.lower(), name.lower()],
         "last_price": (price_info or {}).get("price") or (info.get("last_price") if info else None),
         "last_price_currency": (price_info or {}).get("currency") or currency,
-        "last_price_time": (price_info or {}).get("timestamp") or (_ts() if info else None),
+        "last_price_time": (price_info or {}).get("quote_time") or (price_info or {}).get("timestamp"),
     }
     upsert_symbol_cache(sym)
     symbol_resolver.upsert_symbol(sym)
@@ -956,7 +960,7 @@ def api_export_xlsx():
             price, currency, (p or {}).get("source", "cache" if item.get("last_price") else ""),
             val_own, val_huf, val_eur, val_usd,
             invested, profit_loss, return_pct,
-            (p or {}).get("timestamp", item.get("last_price_time", "")),
+            (p or {}).get("quote_time") or (p or {}).get("timestamp") or item.get("last_price_time", ""),
             "Igen" if (p or {}).get("stale") else "Nem",
             "kézi" if item.get("manually_added") else "keresés",
             export_ts,

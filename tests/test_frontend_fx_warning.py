@@ -30,14 +30,16 @@ def test_main_portfolio_table_is_simple_and_keeps_purchase_data_inputs_elsewhere
     assert "calcTotals = function()" not in html
 
     assert "purchase_price" in html
-    assert "total-invested" not in html
-    assert "total-pl" not in html
-    assert "total-return" not in html
+    assert "total-invested" in html
+    assert "total-pl" in html
+    assert "total-return" in html
     assert 'colspan="8"' in html
     assert "<th class=\"num\">Sorrend</th>" in html
     assert "<th>Részvény</th>" in html
     assert "<th class=\"num\">Darab" in html
-    assert "<th class=\"num\">Árfolyam / Forrás</th>" in html
+    assert "<th class=\"num\">Aktuális ár / forrás</th>" in html
+    assert "<th class=\"num\">Aktuális érték</th>" in html
+    assert "<th class=\"num\">Eredmény</th>" in html
     assert "<th class=\"num\">Költség</th>" in html
     assert "<th>Törlés</th>" in html
     assert "Vétel dátuma" in html
@@ -48,8 +50,6 @@ def test_main_portfolio_table_is_simple_and_keeps_purchase_data_inputs_elsewhere
     table_html = html[table_start:table_end]
     assert "Vétel dátuma" not in table_html
     assert "Vételi ár" not in table_html
-    assert "Befektetett" not in table_html
-    assert "Nyereség" not in table_html
     assert "Hozam %" not in table_html
     assert "purchase_date" in html
     assert "purchase_cost" in html
@@ -83,6 +83,12 @@ def test_table_controls_use_id_delete_cost_and_force_refresh():
     assert 'onclick="refreshAll(true)"' in html
     assert "refreshAll(false)" in html
     assert "force_refresh: Boolean(forceRefresh)" in html
+    assert "Adatok lekérve:" in html
+    assert "Árfolyam időpontja:" in html
+    assert "Késleltetett adat" in html
+    assert "Régi adat" in html
+    assert "Vételi ár:" in html
+    assert "profitLoss" in html
     table_css_start = html.index(".table-wrap")
     table_css_end = html.index("table {", table_css_start)
     assert "overflow: hidden" not in html[table_css_start:table_css_end]

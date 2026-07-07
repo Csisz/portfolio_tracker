@@ -218,7 +218,9 @@ def _mock_prices(tickers, force_refresh=False):
     for t in tickers:
         if t == "AAPL":
             prices[t] = {"price": 195.23, "currency": "USD",
-                         "source": "Yahoo Finance", "timestamp": "2026-06-04T10:00:00"}
+                         "source": "Yahoo Finance", "quote_time": "2026-06-04T10:00:00",
+                         "received_at": "2026-06-04T10:00:06", "timestamp": "2026-06-04T10:00:00",
+                         "stale": False, "delayed": False, "market_state": "REGULAR"}
         else:
             errors.append({"ticker": t, "message": "Árfolyam most nem elérhető."})
     return {"prices": prices, "errors": errors, "timestamp": "2026-06-04T10:00:00", "source": "Yahoo Finance"}
@@ -287,6 +289,9 @@ def test_prices_uses_portfolio_last_price_cache_before_error(client):
     assert d["errors"] == []
     assert d["prices"]["OTP.BD"]["price"] == 40850.0
     assert d["prices"]["OTP.BD"]["stale"] is True
+    assert d["prices"]["OTP.BD"]["delayed"] is True
+    assert d["prices"]["OTP.BD"]["source"] == "Utolsó ismert árfolyam"
+    assert d["prices"]["OTP.BD"]["quote_time"] == "2026-06-05T10:00:00"
     assert d["prices"]["OTP.BD"]["timestamp"] == "2026-06-05T10:00:00"
 
 

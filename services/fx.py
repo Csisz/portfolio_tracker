@@ -272,6 +272,10 @@ def get_market_fx() -> dict:
     errors.extend(yahoo.get("errors", []))
     rates = dict(yahoo.get("rates", {}))
     source_parts = []
+    quote_times = []
+    any_delayed = bool(yahoo.get("delayed"))
+    if yahoo.get("quote_time"):
+        quote_times.append(yahoo["quote_time"])
     if rates:
         source_parts.append("Yahoo Finance")
 
@@ -282,6 +286,9 @@ def get_market_fx() -> dict:
         if stooq.get("rates"):
             rates.update(stooq["rates"])
             source_parts.append("Stooq")
+            any_delayed = any_delayed or bool(stooq.get("delayed"))
+            if stooq.get("quote_time"):
+                quote_times.append(stooq["quote_time"])
 
     if rates:
         result = _provider_result(
@@ -290,6 +297,9 @@ def get_market_fx() -> dict:
             source=" / ".join(source_parts) + " FX",
             timestamp=_ts(),
             errors=errors,
+            quote_time=max(quote_times) if quote_times else None,
+            delayed=any_delayed,
+            stale=False,
         )
         _store_fx_result(result, FX_CACHE_KEY_MARKET, FX_MARKET_CACHE_TTL, "market")
         return _clean_result(result)
@@ -318,20 +328,66 @@ def get_yahoo_fx() -> dict:
 
     rates = {}
     errors = []
+    quote_times = []
+    any_delayed = False
     for currency, ticker in YAHOO_FX_TICKERS.items():
         try:
-            value = _yahoo_last_price(yf, ticker)
+            data = _yahoo_last_price(yf, ticker)
+            value = data.get("price") if data else None
             if value and value > 0:
                 rates[currency] = round(float(value), 6)
+                if data.get("quote_time"):
+                    quote_times.append(data["quote_time"])
+                any_delayed = any_delayed or bool(data.get("delayed"))
             else:
                 errors.append(f"Yahoo {ticker}: nincs arfolyam")
         except Exception as e:
             errors.append(f"Yahoo {ticker}: {e}")
-    return {"rates": rates, "errors": errors, "source": "Yahoo Finance"}
+    return {
+        "rates": rates,
+        "errors": errors,
+        "source": "Yahoo Finance",
+        "quote_time": max(quote_times) if quote_times else None,
+        "delayed": any_delayed,
+        "stale": False,
+        "received_at": _ts(),
+    }
 
 
-def _yahoo_last_price(yf, ticker: str) -> float | None:
+def _idx_iso(idx) -> str | None:
+    try:
+        if hasattr(idx, "to_pydatetime"):
+            return idx.to_pydatetime().isoformat(timespec="seconds")
+        if hasattr(idx, "isoformat"):
+            return idx.isoformat(timespec="seconds")
+        return str(idx).replace(" ", "T")
+    except Exception:
+        return None
+
+
+def _yahoo_history_quote(obj, *, period: str, interval: str, delayed: bool) -> dict | None:
+    hist = obj.history(period=period, interval=interval, auto_adjust=False, prepost=False)
+    if hist is None or getattr(hist, "empty", False) or "Close" not in hist:
+        return None
+    close = hist["Close"].dropna()
+    if close.empty:
+        return None
+    idx = close.index[-1]
+    value = float(close.iloc[-1])
+    if value <= 0:
+        return None
+    return {"price": value, "quote_time": _idx_iso(idx), "delayed": delayed}
+
+
+def _yahoo_last_price(yf, ticker: str) -> dict | None:
     obj = yf.Ticker(ticker)
+    for period, interval in [("1d", "1m"), ("5d", "5m")]:
+        try:
+            quote = _yahoo_history_quote(obj, period=period, interval=interval, delayed=False)
+            if quote:
+                return quote
+        except Exception:
+            pass
     try:
         fast_info = getattr(obj, "fast_info", None)
         value = None
@@ -341,17 +397,11 @@ def _yahoo_last_price(yf, ticker: str) -> float | None:
             else:
                 value = getattr(fast_info, "last_price", None) or getattr(fast_info, "lastPrice", None)
         if value:
-            return float(value)
+            return {"price": float(value), "quote_time": None, "delayed": False}
     except Exception:
         pass
 
-    hist = obj.history(period="5d", interval="1d")
-    if hist is None or getattr(hist, "empty", False):
-        return None
-    close = hist["Close"].dropna()
-    if close.empty:
-        return None
-    return float(close.iloc[-1])
+    return _yahoo_history_quote(obj, period="5d", interval="1d", delayed=True)
 
 
 def get_stooq_fx(currencies: list[str] | None = None) -> dict:
@@ -361,22 +411,26 @@ def get_stooq_fx(currencies: list[str] | None = None) -> dict:
     currencies = currencies or list(STOOQ_FX_SYMBOLS.keys())
     rates = {}
     errors = []
+    quote_times = []
     for currency in currencies:
         symbol = STOOQ_FX_SYMBOLS.get(currency)
         if not symbol:
             continue
         try:
-            value = _fetch_stooq_close(symbol)
+            data = _fetch_stooq_close(symbol)
+            value = data.get("price") if data else None
             if value and value > 0:
                 rates[currency] = round(float(value), 6)
+                if data.get("quote_time"):
+                    quote_times.append(data["quote_time"])
             else:
                 errors.append(f"Stooq {symbol}: nincs arfolyam")
         except Exception as e:
             errors.append(f"Stooq {symbol}: {e}")
-    return {"rates": rates, "errors": errors, "source": "Stooq FX"}
+    return {"rates": rates, "errors": errors, "source": "Stooq FX", "quote_time": max(quote_times) if quote_times else None, "delayed": True, "stale": False, "received_at": _ts()}
 
 
-def _fetch_stooq_close(symbol: str) -> float | None:
+def _fetch_stooq_close(symbol: str) -> dict | None:
     url = f"https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=csv"
     resp = requests.get(url, timeout=10, headers={"User-Agent": "portfolio-tracker/1.0"})
     resp.raise_for_status()
@@ -384,7 +438,10 @@ def _fetch_stooq_close(symbol: str) -> float | None:
     for row in reader:
         close = (row.get("Close") or "").strip()
         if close and close.upper() != "N/D":
-            return float(close)
+            date = (row.get("Date") or "").strip()
+            time_text = (row.get("Time") or "").strip()
+            quote_time = f"{date}T{time_text}" if date.upper() != "N/D" and time_text.upper() != "N/D" else None
+            return {"price": float(close), "quote_time": quote_time, "delayed": True}
     return None
 
 
@@ -409,11 +466,11 @@ def get_fx_rates(mode: str = "market") -> dict:
         return _compose_response(requested_mode, "market", market, market, official, errors)
 
     if requested_mode == "auto" and official.get("fx"):
-        errors.append("Piaci arfolyam nem elerheto, MNB hivatalos napi arfolyamot hasznalunk.")
+        errors.append("A piaci devizaárfolyam jelenleg nem érhető el. A HUF-átváltáshoz az MNB legutóbbi hivatalos napi árfolyamát használjuk.")
         return _compose_response("auto", "official", official, market, official, errors)
 
     if requested_mode == "market" and official.get("fx"):
-        errors.append("Piaci arfolyam nem elerheto, MNB hivatalos napi arfolyamot hasznalunk.")
+        errors.append("A piaci devizaárfolyam jelenleg nem érhető el. A HUF-átváltáshoz az MNB legutóbbi hivatalos napi árfolyamát használjuk.")
         return _compose_response("market", "official", official, market, official, errors)
 
     db_cached = _load_db_cache("official", errors) or _load_db_cache("market", errors)
@@ -440,6 +497,10 @@ def _compose_response(requested_mode: str, used_mode: str, selected: dict, marke
         "errors": _dedupe_errors(errors),
         "source": clean_selected.get("source", "none"),
         "timestamp": clean_selected.get("timestamp", _ts()),
+        "quote_time": clean_selected.get("quote_time"),
+        "received_at": clean_selected.get("received_at") or clean_selected.get("timestamp", _ts()),
+        "stale": bool(clean_selected.get("stale", False)),
+        "delayed": bool(clean_selected.get("delayed", False)),
     }
     if clean_selected.get("date"):
         result["date"] = clean_selected["date"]
@@ -453,6 +514,10 @@ def _section(result: dict | None) -> dict:
     section.update({
         "source": result.get("source", ""),
         "timestamp": result.get("timestamp", ""),
+        "quote_time": result.get("quote_time", ""),
+        "received_at": result.get("received_at", ""),
+        "stale": bool(result.get("stale", False)),
+        "delayed": bool(result.get("delayed", False)),
     })
     if result.get("date"):
         section["date"] = result["date"]
@@ -536,6 +601,10 @@ def _load_db_cache(mode: str, errors: list | None = None) -> dict | None:
         "errors": cached_errors,
         "source": f"{cached.get('source') or 'cache'}/cache",
         "timestamp": cached.get("fetched_at") or _ts(),
+        "received_at": cached.get("fetched_at") or _ts(),
+        "quote_time": cached.get("rate_date") or cached.get("fetched_at"),
+        "stale": True,
+        "delayed": True,
         "date": cached.get("rate_date"),
         "rate_date": cached.get("rate_date"),
     }
@@ -546,13 +615,19 @@ def _load_db_cache(mode: str, errors: list | None = None) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def _provider_result(mode: str, rates: dict, source: str, timestamp: str, errors: list | None = None,
-                     rate_date: str | None = None) -> dict:
+                     rate_date: str | None = None, quote_time: str | None = None,
+                     delayed: bool = True, stale: bool = False) -> dict:
+    qt = quote_time or (rate_date + "T00:00:00" if rate_date else timestamp)
     result = {
         "mode": mode,
         "fx": _build_fx_dict(rates),
         "errors": errors or [],
         "source": source,
         "timestamp": timestamp,
+        "quote_time": qt,
+        "received_at": timestamp,
+        "stale": bool(stale),
+        "delayed": bool(delayed),
         "date": rate_date or timestamp[:10],
         "rate_date": rate_date,
         "_raw": rates,
@@ -567,6 +642,10 @@ def _empty_result(mode: str, source: str, errors: list) -> dict:
         "errors": errors,
         "source": source,
         "timestamp": _ts(),
+        "quote_time": None,
+        "received_at": _ts(),
+        "stale": False,
+        "delayed": False,
         "date": datetime.now().date().isoformat(),
     }
 

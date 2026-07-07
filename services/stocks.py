@@ -4,6 +4,9 @@ Részvényárfolyam lekérés – yfinance elsőként, Stooq fallback minden tő
 import csv
 import io
 import logging
+import math
+import numbers
+import time
 from datetime import datetime, timedelta
 
 import requests
@@ -84,17 +87,110 @@ def _bd_to_stooq(ticker: str) -> str | None:
 # Árfolyam lekérés
 # ---------------------------------------------------------------------------
 
-def get_last_price(ticker: str, force_refresh: bool = False) -> tuple[float | None, str | None, str, bool]:
+def _ts() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _iso_from_index(idx) -> str | None:
+    if idx is None:
+        return None
+    try:
+        if hasattr(idx, "to_pydatetime"):
+            dt = idx.to_pydatetime()
+        elif hasattr(idx, "isoformat"):
+            dt = idx
+        else:
+            text = str(idx)
+            if not text or text.upper() == "N/D":
+                return None
+            return datetime.fromisoformat(text[:19]).isoformat(timespec="seconds")
+        return dt.isoformat(timespec="seconds")
+    except Exception:
+        text = str(idx or "").strip()
+        return text or None
+
+
+def _valid_price(value) -> float | None:
+    if value is None or not isinstance(value, (numbers.Number, str)):
+        return None
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(price) or price <= 0:
+        return None
+    return round(price, 4)
+
+
+def _fast_info_value(fast_info, *names):
+    for name in names:
+        try:
+            if isinstance(fast_info, dict) and fast_info.get(name) is not None:
+                return fast_info.get(name)
+            value = getattr(fast_info, name, None)
+            if value is not None:
+                return value
+        except Exception:
+            continue
+    return None
+
+
+def _quote(price, currency, source, *, quote_time=None, stale=False, delayed=False, market_state=None, received_at=None):
+    return {
+        "price": price,
+        "currency": str(currency).upper() if currency else None,
+        "source": source,
+        "quote_time": quote_time,
+        "received_at": received_at or _ts(),
+        "stale": bool(stale),
+        "delayed": bool(delayed),
+        "market_state": market_state or "UNKNOWN",
+        "timestamp": quote_time,
+    }
+
+
+def _quote_from_history(ticker_obj, source: str, *, period: str, interval: str, delayed: bool):
+    hist = ticker_obj.history(period=period, interval=interval, auto_adjust=False, prepost=False)
+    if hist is None or getattr(hist, "empty", False) or "Close" not in hist:
+        return None
+    close_rows = hist["Close"].dropna()
+    if close_rows.empty:
+        return None
+    for idx, close in reversed(list(close_rows.items())):
+        price = _valid_price(close)
+        if price is None:
+            continue
+        fast_info = None
+        try:
+            fast_info = ticker_obj.fast_info
+        except Exception:
+            fast_info = None
+        currency = _fast_info_value(fast_info, "currency")
+        market_state = _fast_info_value(fast_info, "market_state", "marketState") or ("CLOSED" if delayed else "UNKNOWN")
+        return _quote(
+            price,
+            currency,
+            source,
+            quote_time=_iso_from_index(idx),
+            delayed=delayed,
+            market_state=str(market_state).upper() if market_state else "UNKNOWN",
+        )
+    return None
+
+
+def get_last_price(ticker: str, force_refresh: bool = False) -> dict:
     """
-    Visszaadja: (ár, deviza, forrás, stale)
+    Visszaadja az egységes árfolyamobjektumot.
     stale=True: elavult, cache-ből vagy symbols_cache-ből jön
 
     Sorrend:
     A) price cache (TTL-n belül, kivéve force_refresh=True)
-    B) yfinance fast_info
-    C) yfinance history(5d)
-    D) Stooq fallback (minden ismert tőzsdére)
-    E) symbols cache last_price (stale=True)
+    B) yfinance intraday 1m
+    C) yfinance intraday 5m
+    D) yfinance fast_info
+    E) yfinance daily close
+    F) Stooq fallback (minden ismert tőzsdére)
+    G) symbols cache last_price (stale=True)
     """
     clean_ticker = normalize_ticker(ticker)
     key = PRICE_CACHE_PREFIX + clean_ticker
@@ -102,28 +198,41 @@ def get_last_price(ticker: str, force_refresh: bool = False) -> tuple[float | No
     # A) Memory cache
     cached = None if force_refresh else cache.get(key)
     if cached:
-        return cached["price"], cached["currency"], "Yahoo Finance/cache", False
+        cached_quote = dict(cached)
+        cached_quote["source"] = (cached_quote.get("source") or "Árfolyam") + " / cache"
+        cached_quote["stale"] = bool(cached_quote.get("stale", False))
+        cached_quote["timestamp"] = cached_quote.get("quote_time")
+        return cached_quote
 
     # B+C) yfinance
-    price, currency = _fetch_price_yfinance(clean_ticker)
-    if price is not None:
-        cache.set(key, {"price": price, "currency": currency}, PRICE_CACHE_TTL)
-        return price, currency, "Yahoo Finance", False
+    quote = _fetch_price_yfinance(clean_ticker)
+    if quote and quote.get("price") is not None:
+        cache.set(key, quote, PRICE_CACHE_TTL)
+        return quote
 
     # D) Stooq fallback – minden tőzsdére
     stooq_sym, stooq_currency = _to_stooq(clean_ticker)
     if stooq_sym:
-        price, currency = _fetch_price_stooq(stooq_sym, stooq_currency)
-        if price is not None:
-            cache.set(key, {"price": price, "currency": currency}, PRICE_CACHE_TTL)
-            return price, currency, "Stooq", False
+        quote = _fetch_price_stooq(stooq_sym, stooq_currency)
+        if quote and quote.get("price") is not None:
+            cache.set(key, quote, PRICE_CACHE_TTL)
+            return quote
 
     # E) Stale ár a symbols cache-ből
-    stale_price, stale_currency = _get_stale_price(clean_ticker)
+    stale_price, stale_currency, stale_time = _get_stale_price(clean_ticker)
     if stale_price is not None:
-        return stale_price, stale_currency, "stale", True
+        return _quote(
+            stale_price,
+            stale_currency,
+            "Utolsó ismert árfolyam",
+            quote_time=stale_time,
+            stale=True,
+            delayed=True,
+            market_state="UNKNOWN",
+            received_at=None,
+        )
 
-    return None, None, "none", False
+    return _quote(None, None, "none", stale=False, delayed=False)
 
 
 def get_historical_price(ticker: str, requested_date: str) -> dict:
@@ -187,34 +296,66 @@ def get_historical_price(ticker: str, requested_date: str) -> dict:
         return {"ok": False, "error": "Historical price is not available"}
 
 
-def _fetch_price_yfinance(ticker: str) -> tuple[float | None, str | None]:
+def _fetch_price_yfinance(ticker: str) -> dict | None:
     t = yf.Ticker(ticker)
+
+    for period, interval in [("1d", "1m"), ("5d", "5m")]:
+        try:
+            quote = _quote_from_history(
+                t,
+                "Yahoo Finance",
+                period=period,
+                interval=interval,
+                delayed=False,
+            )
+            if quote:
+                logger.info("quote ticker=%s provider=Yahoo Finance ok interval=%s quote_time=%s", ticker, interval, quote.get("quote_time"))
+                return quote
+        except Exception as exc:
+            logger.info("quote ticker=%s provider=Yahoo Finance error interval=%s fallback=%s", ticker, interval, exc)
 
     # fast_info.last_price
     try:
         fi = t.fast_info
-        p = fi.last_price
-        c = getattr(fi, "currency", None)
-        if p and float(p) > 0:
-            return round(float(p), 4), str(c).upper() if c else None
+        p = _valid_price(_fast_info_value(fi, "last_price", "lastPrice"))
+        c = _fast_info_value(fi, "currency")
+        market_state = _fast_info_value(fi, "market_state", "marketState")
+        quote_time = _fast_info_value(fi, "last_price_time", "lastPriceTime", "regular_market_time", "regularMarketTime")
+        if quote_time and not isinstance(quote_time, str):
+            try:
+                quote_time = datetime.fromtimestamp(float(quote_time)).astimezone().isoformat(timespec="seconds")
+            except Exception:
+                quote_time = None
+        if p is not None:
+            return _quote(
+                p,
+                c,
+                "Yahoo Finance",
+                quote_time=quote_time,
+                delayed=False,
+                market_state=str(market_state).upper() if market_state else "UNKNOWN",
+            )
     except Exception:
         pass
 
-    # history fallback
+    # daily history fallback
     try:
-        hist = t.history(period="5d")
-        if not hist.empty:
-            p = float(hist["Close"].iloc[-1])
-            c = getattr(t.fast_info, "currency", None)
-            if p > 0:
-                return round(p, 4), str(c).upper() if c else None
+        quote = _quote_from_history(
+            t,
+            "Yahoo Finance - utolsó záróár",
+            period="5d",
+            interval="1d",
+            delayed=True,
+        )
+        if quote:
+            return quote
     except Exception:
         pass
 
-    return None, None
+    return None
 
 
-def _fetch_price_stooq(stooq_symbol: str, expected_currency: str = None) -> tuple[float | None, str | None]:
+def _fetch_price_stooq(stooq_symbol: str, expected_currency: str = None) -> dict | None:
     """Stooq CSV árfolyam lekérés, pl. stooq_symbol='aapl.us'."""
     url = f"https://stooq.com/q/l/?s={stooq_symbol}&f=sd2t2ohlcv&h&e=csv"
     try:
@@ -224,15 +365,27 @@ def _fetch_price_stooq(stooq_symbol: str, expected_currency: str = None) -> tupl
         for row in reader:
             close = row.get("Close", "").strip()
             if close and close != "N/D":
-                price = float(close)
-                if price > 0:
-                    return round(price, 4), expected_currency
+                price = _valid_price(close)
+                if price is not None:
+                    date = (row.get("Date") or "").strip()
+                    time_text = (row.get("Time") or "").strip()
+                    quote_time = None
+                    if date and date.upper() != "N/D" and time_text and time_text.upper() != "N/D":
+                        quote_time = f"{date}T{time_text}"
+                    return _quote(
+                        price,
+                        expected_currency,
+                        "Stooq - késleltetett",
+                        quote_time=quote_time,
+                        delayed=True,
+                        market_state="CLOSED",
+                    )
     except Exception as e:
         logger.warning("Stooq lekérés hiba (%s): %s", stooq_symbol, e)
-    return None, None
+    return None
 
 
-def _get_stale_price(ticker: str) -> tuple[float | None, str | None]:
+def _get_stale_price(ticker: str) -> tuple[float | None, str | None, str | None]:
     """Utolsó ismert ár a symbols_cache-ből (stale fallback)."""
     normalized = normalize_ticker(ticker)
     try:
@@ -243,7 +396,7 @@ def _get_stale_price(ticker: str) -> tuple[float | None, str | None]:
             None,
         )
         if sym and sym.get("last_price"):
-            return float(sym["last_price"]), sym.get("last_price_currency") or sym.get("currency")
+            return float(sym["last_price"]), sym.get("last_price_currency") or sym.get("currency"), sym.get("last_price_time")
     except Exception:
         pass
 
@@ -255,10 +408,10 @@ def _get_stale_price(ticker: str) -> tuple[float | None, str | None]:
             None,
         )
         if sym and sym.get("last_price"):
-            return float(sym["last_price"]), sym.get("currency")
+            return float(sym["last_price"]), sym.get("currency"), sym.get("last_price_time")
     except Exception:
         pass
-    return None, None
+    return None, None, None
 
 
 # ---------------------------------------------------------------------------
@@ -275,22 +428,19 @@ def get_prices_for_tickers(tickers: list[str], force_refresh: bool = False) -> d
         original_ticker = str(ticker or "").strip().upper()
         response_ticker = original_ticker or normalize_ticker(ticker)
         try:
-            price, currency, source, stale = get_last_price(ticker, force_refresh=force_refresh)
-            if price is not None:
-                entry = {
-                    "price": price,
-                    "currency": currency or "USD",
-                    "source": source,
-                }
-                if stale:
-                    entry["timestamp"] = None
-                else:
-                    entry["timestamp"] = datetime.now().isoformat(timespec="seconds")
-                if stale:
-                    entry["stale"] = True
+            start = time.perf_counter()
+            entry = get_last_price(ticker, force_refresh=force_refresh)
+            elapsed_ms = round((time.perf_counter() - start) * 1000)
+            if entry.get("price") is not None:
+                entry["currency"] = entry.get("currency") or "USD"
+                entry["timestamp"] = entry.get("quote_time")
                 prices[response_ticker] = entry
+                logger.info(
+                    "quote ticker=%s provider=%s ok elapsed_ms=%s quote_time=%s",
+                    response_ticker, entry.get("source"), elapsed_ms, entry.get("quote_time")
+                )
 
-                if stale or "cache" in source:
+                if entry.get("stale") or "cache" in (entry.get("source") or ""):
                     any_cached = True
                 else:
                     any_live = True
@@ -312,10 +462,11 @@ def get_prices_for_tickers(tickers: list[str], force_refresh: bool = False) -> d
     else:
         overall_source = "none"
 
+    received_at = _ts()
     return {
         "prices": prices,
         "errors": errors,
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "received_at": received_at,
         "source": overall_source,
     }
 
