@@ -208,6 +208,18 @@
 
     .btn-del { min-width: 38px; height: 34px; border: 1px solid #fecaca; background: #fff; cursor: pointer; color: #b91c1c; font-size: 20px; padding: 2px 8px; border-radius: 6px; line-height: 1; font-weight: 700; }
     .btn-del:hover { color: #fff; background: #dc2626; border-color: #dc2626; }
+    .row-actions { display: flex; gap: 6px; align-items: center; }
+    .btn-edit { min-width: 38px; height: 34px; border: 1px solid #bfdbfe; background: #fff; cursor: pointer; color: #1d4ed8; font-size: 16px; padding: 2px 8px; border-radius: 6px; }
+    .btn-edit:hover { color: #fff; background: #2563eb; border-color: #2563eb; }
+    .cash-form { display: grid; grid-template-columns: 120px 1fr 160px auto; gap: 10px; align-items: end; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(17,24,39,.55); display: none; align-items: center; justify-content: center; padding: 16px; }
+    .modal-backdrop.visible { display: flex; }
+    .edit-modal { width: min(560px, 100%); background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 20px 45px rgba(0,0,0,.25); }
+    .edit-modal h2 { font-size: 18px; margin-bottom: 6px; }
+    .edit-modal-meta { color: #6b7280; font-size: 12px; margin-bottom: 16px; }
+    .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .btn-secondary { padding: 9px 16px; border: 1px solid #d1d5db; background: #fff; border-radius: 8px; cursor: pointer; }
 
     .loading-cell { color: #bbb; font-style: italic; }
     .error-cell { color: #dc2626; font-size: 12px; }
@@ -229,6 +241,7 @@
       .selected-stock-box.visible { flex-direction: column; align-items: flex-start; }
       .manual-grid-5 { grid-template-columns: 1fr 1fr; }
       .purchase-grid { grid-template-columns: 1fr; }
+      .cash-form, .edit-grid { grid-template-columns: 1fr; }
       .alerts-grid, .alerts-grid-2 { grid-template-columns: 1fr; }
     }
   </style>
@@ -343,6 +356,26 @@
     </div>
 
     <!-- Kézi hozzáadás -->
+    <div class="manual-section">
+      <div class="search-panel-title">💵 Készpénz hozzáadása</div>
+      <div class="cash-form">
+        <div class="form-group">
+          <label>Deviza</label>
+          <select class="form-input" id="cash-currency"><option>HUF</option><option>EUR</option><option>USD</option></select>
+        </div>
+        <div class="form-group">
+          <label>Összeg *</label>
+          <input type="number" class="form-input" id="cash-amount" min="0.01" step="any" placeholder="pl. 100000">
+        </div>
+        <div class="form-group">
+          <label>Dátum (opcionális)</label>
+          <input type="date" class="form-input" id="cash-date">
+        </div>
+        <button class="btn-manual-add" onclick="addCash()">Készpénz hozzáadása</button>
+      </div>
+      <div class="manual-status" id="cash-status"></div>
+    </div>
+
     <div class="manual-section">
       <button class="manual-toggle" onclick="toggleManual()" id="manual-toggle-btn">
         <span id="manual-toggle-arrow">▶</span> Nem találod? Add meg kézzel a tickert.
@@ -468,7 +501,7 @@
 
   <!-- Portfólió táblázat -->
   <div class="section-header">
-    <span class="section-title">Részvényeim</span>
+    <span class="section-title">Portfólióm</span>
     <div class="section-btns">
       <a href="/api/export/xlsx" class="btn-excel" title="Excel letöltése">⬇ Excel</a>
       <button class="btn-refresh" onclick="refreshAll(true)" id="refresh-btn">
@@ -482,19 +515,34 @@
       <thead>
         <tr>
           <th class="num">Sorrend</th>
-          <th>Részvény</th>
-          <th class="num">Darab <span style="font-size:10px;color:#bbb">(kattints)</span></th>
+          <th>Tétel</th>
+          <th class="num">Darab / összeg <span style="font-size:10px;color:#bbb">(kattints)</span></th>
           <th class="num">Aktuális ár / forrás</th>
           <th class="num">Aktuális érték</th>
           <th class="num">Eredmény</th>
           <th class="num">Költség</th>
-          <th>Törlés</th>
+          <th>Műveletek</th>
         </tr>
       </thead>
       <tbody id="stocks-tbody">
         <tr><td colspan="8" class="loading-cell" style="padding:20px;text-align:center">Betöltés...</td></tr>
       </tbody>
     </table>
+  </div>
+
+  <div class="modal-backdrop" id="edit-backdrop" role="dialog" aria-modal="true" aria-labelledby="edit-title" onclick="if(event.target===this) closeItemEditor()">
+    <div class="edit-modal">
+      <h2 id="edit-title">Tétel szerkesztése</h2>
+      <div class="edit-modal-meta" id="edit-meta"></div>
+      <div class="edit-grid">
+        <div class="form-group"><label>Darab / összeg *</label><input class="form-input" type="number" min="0.001" step="any" id="edit-qty"></div>
+        <div class="form-group"><label>Vétel dátuma</label><input class="form-input" type="date" id="edit-date"></div>
+        <div class="form-group"><label>Vételi ár</label><input class="form-input" type="number" min="0.001" step="any" id="edit-price"></div>
+        <div class="form-group"><label>Vételi költség</label><input class="form-input" type="number" min="0" step="any" id="edit-cost"></div>
+      </div>
+      <div class="form-error" id="edit-error"></div>
+      <div class="edit-actions"><button class="btn-secondary" onclick="closeItemEditor()">Mégsem</button><button class="btn-add-stock" onclick="saveItemEditor()">Mentés</button></div>
+    </div>
   </div>
 
   <div class="info-box">
@@ -518,6 +566,7 @@
   let fxOfficial = {};
   let searchTimeout = null;
   let selectedStock = null;
+  let editingItemIndex = null;
   let defaultAutoRefreshSeconds = Number({{ auto_refresh_seconds | default(300) }});
   if (!Number.isFinite(defaultAutoRefreshSeconds)) defaultAutoRefreshSeconds = 300;
   let autoRefreshSeconds = defaultAutoRefreshSeconds;
@@ -832,8 +881,9 @@
 
   function priceStateText(p) {
     if (!p) return '';
-    if (p.stale) return 'Régi adat' + (p.quote_time ? ': ' + fmtDateTime(p.quote_time) : '');
-    if (p.delayed) return p.market_state === 'CLOSED' ? 'Piac zárva – utolsó elérhető ár' : 'Késleltetett adat';
+    if (p.source === 'Készpénz') return 'Készpénz';
+    if (p.stale) return 'Utolsó ismert árfolyam';
+    if (p.delayed) return p.market_state === 'CLOSED' ? 'Piac zárva – utolsó elérhető záróár' : 'Késleltetett árfolyam';
     if ((p.source || '').includes('cache')) return 'Cache-ből';
     return 'Legfrissebb elérhető árfolyam';
   }
@@ -886,7 +936,7 @@
   function renderTable() {
     const tbody = document.getElementById('stocks-tbody');
     if (!portfolio.length) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#bbb;padding:24px">Még nincs részvény. Keress egyet fent!</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#bbb;padding:24px">Még nincs tétel a portfólióban.</td></tr>';
       return;
     }
     tbody.innerHTML = portfolio.map((s, i) => {
@@ -900,7 +950,8 @@
       const srcLabel = p ? (p.source || '').replace('Yahoo Finance', 'Yahoo').replace('/cache', ' (cache)').replace('/részleges cache', '') : '';
       let priceStr;
       if (p && price != null) {
-        const priceFormatted = price.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 4}) + ' ' + (currency || '');
+        const isCash = String(s.ticker || '').startsWith('CASH-');
+        const priceFormatted = price.toLocaleString('hu-HU', {minimumFractionDigits: isCash ? 0 : 2, maximumFractionDigits: isCash ? 0 : 4}) + ' ' + (currency || '');
         const quoteTime = p.quote_time || p.timestamp;
         const timeHtml = quoteTime ? `<span class="cell-sub">Árfolyam időpontja: ${fmtDateTime(quoteTime)}</span>` : '';
         const state = priceStateText(p);
@@ -923,6 +974,7 @@
       } else {
         hufStr = '';
       }
+      const isCash = String(s.ticker || '').startsWith('CASH-');
       const purchaseInfo = m.hasPurchase
         ? `<div class="stock-purchase">Vételi ár: ${fmtMoney(m.purchasePrice, currency)}${s.purchase_date ? `<br>Vétel: ${fmtDate(s.purchase_date)}` : ''}</div>`
         : '<div class="stock-purchase">Vételi ár nincs megadva</div>';
@@ -942,7 +994,7 @@
         </div></td>
         <td>
           <div class="ticker-badge">${escapeHtml(s.ticker)}${tag}</div>
-          <div class="stock-name">${escapeHtml(s.name || '')}</div>
+          <div class="stock-name">${escapeHtml(s.name || '')}${isCash ? ' · pénzegyenleg' : ''}</div>
           ${purchaseInfo}
         </td>
         <td class="num">
@@ -958,7 +1010,7 @@
         <td class="num"><div class="cost-inline">
           <input id="purchase-cost-${i}" type="number" min="0" step="any" value="${escapeHtml(purchaseCostVal)}" onblur="savePurchaseCost(${i})" placeholder="0" title="Opcionális vételi költség">
         </div></td>
-        <td><button class="btn-del" onclick="removeStock(${i},${itemId})" title="Törlés">×</button></td>
+        <td><div class="row-actions"><button class="btn-edit" onclick="openItemEditor(${i})" title="Tétel szerkesztése" aria-label="Szerkesztés">✎</button><button class="btn-del" onclick="removeStock(${i},${itemId})" title="Törlés">×</button></div></td>
       </tr>`;
     }).join('');
     fillAlertTickerOptions();
@@ -1533,6 +1585,30 @@
     };
   }
 
+  async function addCash() {
+    const currency = document.getElementById('cash-currency').value;
+    const amount = Number(document.getElementById('cash-amount').value);
+    const purchaseDate = document.getElementById('cash-date').value || null;
+    const status = document.getElementById('cash-status');
+    if (!Number.isFinite(amount) || amount <= 0) {
+      status.className = 'manual-status err'; status.textContent = 'Adj meg nullánál nagyobb összeget.'; return;
+    }
+    const r = await apiFetch('/api/cash', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({currency, amount, purchase_date: purchaseDate})
+    });
+    const d = r ? await r.json() : {ok:false};
+    if (!r || !r.ok || !d.ok) {
+      status.className = 'manual-status err'; status.textContent = d.error || 'A készpénz hozzáadása nem sikerült.'; return;
+    }
+    portfolio.push(d.item);
+    prices[d.item.ticker] = {price:1, currency, source:'Készpénz', stale:false, delayed:false, market_state:'CASH'};
+    document.getElementById('cash-amount').value = '';
+    document.getElementById('cash-date').value = '';
+    status.className = 'manual-status ok'; status.textContent = d.message || 'Készpénz hozzáadva.';
+    renderTable(); calcTotals(); calcComposition();
+  }
+
   function setAddError(prefix, message) {
     const el = document.getElementById(prefix + '-add-error');
     if (!el) {
@@ -1677,6 +1753,53 @@
     portfolio[i] = d.item || {...portfolio[i], ...payload};
     renderTable();
     calcTotals();
+  }
+
+  function openItemEditor(i) {
+    const item = portfolio[i];
+    if (!item) return;
+    editingItemIndex = i;
+    document.getElementById('edit-meta').textContent = `${item.name || item.ticker} · ${item.ticker} · ${item.currency || 'nincs deviza'}`;
+    document.getElementById('edit-qty').value = item.qty ?? '';
+    document.getElementById('edit-date').value = item.purchase_date || '';
+    document.getElementById('edit-price').value = item.purchase_price ?? '';
+    document.getElementById('edit-cost').value = item.purchase_cost ?? '';
+    const error = document.getElementById('edit-error'); error.textContent = ''; error.classList.remove('visible');
+    document.getElementById('edit-backdrop').classList.add('visible');
+    document.getElementById('edit-qty').focus();
+  }
+
+  function closeItemEditor() {
+    document.getElementById('edit-backdrop').classList.remove('visible');
+    editingItemIndex = null;
+  }
+
+  async function saveItemEditor() {
+    const i = editingItemIndex;
+    const item = portfolio[i];
+    if (!item || !item.id) return;
+    const qty = Number(document.getElementById('edit-qty').value);
+    const priceRaw = document.getElementById('edit-price').value;
+    const costRaw = document.getElementById('edit-cost').value;
+    const payload = {
+      qty,
+      purchase_date: document.getElementById('edit-date').value || null,
+      purchase_price: priceRaw === '' ? null : Number(priceRaw),
+      purchase_cost: costRaw === '' ? null : Number(costRaw),
+      purchase_price_source: priceRaw === '' ? null : 'manual'
+    };
+    const error = document.getElementById('edit-error');
+    if (!Number.isFinite(qty) || qty <= 0 || (payload.purchase_price != null && (!Number.isFinite(payload.purchase_price) || payload.purchase_price <= 0)) || (payload.purchase_cost != null && (!Number.isFinite(payload.purchase_cost) || payload.purchase_cost < 0))) {
+      error.textContent = 'Ellenőrizd a darab / összeg, vételi ár és költség mezőket.'; error.classList.add('visible'); return;
+    }
+    const r = await apiFetch(`/api/portfolio/${item.id}`, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    const d = r ? await r.json() : {ok:false};
+    if (!r || !r.ok || !d.ok) {
+      error.textContent = d.error || 'A tétel mentése nem sikerült.'; error.classList.add('visible'); return;
+    }
+    portfolio[i] = d.item;
+    closeItemEditor();
+    renderTable(); calcTotals(); calcComposition();
   }
 
   async function movePortfolioRow(i, direction) {

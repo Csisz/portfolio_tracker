@@ -35,13 +35,13 @@ def test_main_portfolio_table_is_simple_and_keeps_purchase_data_inputs_elsewhere
     assert "total-return" in html
     assert 'colspan="8"' in html
     assert "<th class=\"num\">Sorrend</th>" in html
-    assert "<th>Részvény</th>" in html
-    assert "<th class=\"num\">Darab" in html
+    assert "<th>Tétel</th>" in html
+    assert "<th class=\"num\">Darab / összeg" in html
     assert "<th class=\"num\">Aktuális ár / forrás</th>" in html
     assert "<th class=\"num\">Aktuális érték</th>" in html
     assert "<th class=\"num\">Eredmény</th>" in html
     assert "<th class=\"num\">Költség</th>" in html
-    assert "<th>Törlés</th>" in html
+    assert "<th>Műveletek</th>" in html
     assert "Vétel dátuma" in html
     assert "Vételi ár" in html
     assert "Vételi költség" in html
@@ -57,7 +57,7 @@ def test_main_portfolio_table_is_simple_and_keeps_purchase_data_inputs_elsewhere
     assert "purchase-cost" in html
     assert "Atlagos veteli ar" not in html
     assert "/api/price-history" not in html
-    assert "purchase_price_source" not in html
+    assert "purchase_price_source" in html
     assert "purchase-source" not in html
     assert "fetchHistorical" not in html
     assert "historikus" not in html.lower()
@@ -85,14 +85,25 @@ def test_table_controls_use_id_delete_cost_and_force_refresh():
     assert "force_refresh: Boolean(forceRefresh)" in html
     assert "Adatok lekérve:" in html
     assert "Árfolyam időpontja:" in html
-    assert "Késleltetett adat" in html
-    assert "Régi adat" in html
+    assert "Késleltetett árfolyam" in html
+    assert "Utolsó ismert árfolyam" in html
+    assert "Piac zárva – utolsó elérhető záróár" in html
     assert "Vételi ár:" in html
     assert "profitLoss" in html
     table_css_start = html.index(".table-wrap")
     table_css_end = html.index("table {", table_css_start)
     assert "overflow: hidden" not in html[table_css_start:table_css_end]
     assert "overflow-x: auto" in html[table_css_start:table_css_end]
+
+
+def test_cash_and_full_item_editor_are_visible():
+    html = _index_html()
+    assert "Készpénz hozzáadása" in html
+    assert 'id="cash-currency"' in html
+    assert "function addCash()" in html
+    assert 'title="Tétel szerkesztése"' in html
+    assert "function openItemEditor(i)" in html
+    assert "function saveItemEditor()" in html
 
 
 def test_add_stock_card_shows_current_price_and_requires_purchase_price():

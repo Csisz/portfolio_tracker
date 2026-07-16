@@ -37,14 +37,15 @@ from services.db import (create_alert, create_user, delete_alert,
                           update_portfolio_item_by_id,
                           upsert_symbol_cache,
                           update_item_last_price, update_last_login,
-                          update_portfolio_qty_by_id,
                           update_user, verify_password)
 from services.fx import get_fx_rates
 from services.settings_store import (get_all_settings_with_defaults,
                                       get_bool, get_int, get_setting,
                                       get_setting_bool, get_setting_int,
                                       init_default_settings, save_setting)
-from services.stocks import get_historical_price, get_prices_for_tickers, get_ticker_info, normalize_ticker
+from services.stocks import (cash_currency_from_ticker, get_historical_price,
+                             get_prices_for_tickers, get_ticker_info,
+                             normalize_ticker)
 from services.emailer import send_email, smtp_configured
 
 # ---------------------------------------------------------------------------
@@ -406,58 +407,60 @@ def api_portfolio_delete(item_id: int):
 @login_required
 def api_portfolio_update(item_id: int):
     data = request.get_json(silent=True) or {}
-    purchase_keys = {"purchase_price", "purchase_date", "purchase_cost", "purchase_price_source"}
-    if purchase_keys.intersection(data.keys()) and "qty" not in data:
-        portfolio = get_portfolio(current_user_id())
-        item = next((i for i in portfolio if i["id"] == item_id), None)
-        if not item:
-            return jsonify({"ok": False, "error": "Elem nem talalhato"}), 404
+    allowed = {"qty", "purchase_price", "purchase_date", "purchase_cost", "purchase_price_source"}
+    if not allowed.intersection(data):
+        return jsonify({"ok": False, "error": "Nincs frissíthető mező."}), 400
 
-        updated = dict(item)
-        if "purchase_price" in data:
-            raw_price = data.get("purchase_price")
-            if raw_price in (None, ""):
-                updated["purchase_price"] = None
-            else:
-                try:
-                    updated["purchase_price"] = float(raw_price)
-                except (ValueError, TypeError):
-                    return jsonify({"ok": False, "error": "Ervenytelen veteli ar"}), 400
-        if "purchase_date" in data:
-            updated["purchase_date"] = str(data.get("purchase_date") or "").strip() or None
-        if "purchase_cost" in data:
-            cost = _non_negative_float_or_none(data.get("purchase_cost"))
-            if cost is None and data.get("purchase_cost") not in (None, ""):
-                return jsonify({"ok": False, "error": "Ervenytelen veteli koltseg"}), 400
-            updated["purchase_cost"] = cost
-        if "purchase_price_source" in data:
-            updated["purchase_price_source"] = str(data.get("purchase_price_source") or "").strip() or None
-
-        saved = update_portfolio_item_by_id(current_user_id(), item_id, updated)
-        if not saved:
-            return jsonify({"ok": False, "error": "Elem nem talalhato"}), 404
-        log_event(current_user_id(), "portfolio_purchase_update",
-                  f"ticker={item['ticker']}", _client_ip())
-        return jsonify({"ok": True, "item": saved})
-
-    qty = data.get("qty")
-    if qty is None:
-        return jsonify({"ok": False, "error": "qty mező szükséges"}), 400
-    try:
-        qty = float(qty)
-    except (ValueError, TypeError):
-        return jsonify({"ok": False, "error": "Érvénytelen darabszám"}), 400
-
-    portfolio = get_portfolio(current_user_id())
+    uid = current_user_id()
+    portfolio = get_portfolio(uid)
     item = next((i for i in portfolio if i["id"] == item_id), None)
     if not item:
-        return jsonify({"ok": False, "error": "Elem nem található"}), 404
+        return jsonify({"ok": False, "error": "A tétel nem található."}), 404
 
-    ok = update_portfolio_qty_by_id(current_user_id(), item_id, qty)
-    if ok:
-        log_event(current_user_id(), "portfolio_qty_update",
-                  f"ticker={item['ticker']} qty={qty}", _client_ip())
-    return jsonify({"ok": ok})
+    updated = dict(item)
+    if "qty" in data:
+        try:
+            qty = float(data.get("qty"))
+            if qty <= 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return jsonify({"ok": False, "error": "A darab / összeg legyen nullánál nagyobb."}), 400
+        updated["qty"] = qty
+    if "purchase_price" in data:
+        raw_price = data.get("purchase_price")
+        if raw_price in (None, ""):
+            updated["purchase_price"] = None
+            updated["purchase_price_source"] = None
+        else:
+            try:
+                price = float(raw_price)
+                if price <= 0:
+                    raise ValueError()
+            except (ValueError, TypeError):
+                return jsonify({"ok": False, "error": "A vételi ár legyen nullánál nagyobb."}), 400
+            updated["purchase_price"] = price
+            updated["purchase_price_source"] = "manual"
+    if "purchase_date" in data:
+        purchase_date = str(data.get("purchase_date") or "").strip() or None
+        if purchase_date:
+            try:
+                datetime.strptime(purchase_date, "%Y-%m-%d")
+            except ValueError:
+                return jsonify({"ok": False, "error": "A vétel dátuma ÉÉÉÉ-HH-NN formátumú legyen."}), 400
+        updated["purchase_date"] = purchase_date
+    if "purchase_cost" in data:
+        cost = _non_negative_float_or_none(data.get("purchase_cost"))
+        if cost is None and data.get("purchase_cost") not in (None, ""):
+            return jsonify({"ok": False, "error": "A vételi költség nem lehet negatív."}), 400
+        updated["purchase_cost"] = cost
+    if "purchase_price_source" in data:
+        updated["purchase_price_source"] = str(data.get("purchase_price_source") or "").strip().lower() or None
+
+    saved = update_portfolio_item_by_id(uid, item_id, updated)
+    if not saved:
+        return jsonify({"ok": False, "error": "A tétel nem található."}), 404
+    log_event(uid, "portfolio_item_update", f"ticker={item['ticker']} id={item_id}", _client_ip())
+    return jsonify({"ok": True, "item": saved})
 
 
 # ---------------------------------------------------------------------------
@@ -495,11 +498,24 @@ def api_add_manual():
     currency = str(data.get("currency", "")).strip().upper() or None
     exchange = str(data.get("exchange", "")).strip()
 
+    cash_currency = cash_currency_from_ticker(ticker)
+    if cash_currency:
+        currency = cash_currency
+        name = f"Készpénz ({cash_currency})"
+        exchange = ""
+        data["purchase_price"] = 1
+        data["purchase_cost"] = 0
+        data["purchase_price_source"] = "manual"
+
     validated = False
     validation_warning = None
     info = None
     try:
-        info = get_ticker_info(ticker)
+        if cash_currency:
+            info = None
+            validated = True
+        else:
+            info = get_ticker_info(ticker)
         if info:
             validated = True
             if not currency:
@@ -518,7 +534,7 @@ def api_add_manual():
         return jsonify({"ok": False, "error": "Ervenytelen veteli koltseg"}), 400
     purchase_source = str(data.get("purchase_price_source") or "").strip().lower() or None
     price_info = None
-    if purchase_price in (None, ""):
+    if purchase_price in (None, "") and not cash_currency:
         try:
             price_result = get_prices_for_tickers([ticker])
             price_info = (price_result.get("prices") or {}).get(ticker)
@@ -567,8 +583,9 @@ def api_add_manual():
         "last_price_currency": (price_info or {}).get("currency") or currency,
         "last_price_time": (price_info or {}).get("quote_time") or (price_info or {}).get("timestamp"),
     }
-    upsert_symbol_cache(sym)
-    symbol_resolver.upsert_symbol(sym)
+    if not cash_currency:
+        upsert_symbol_cache(sym)
+        symbol_resolver.upsert_symbol(sym)
 
     log_event(uid, "portfolio_add",
               f"ticker={ticker} qty={qty} manual=true", _client_ip())
@@ -583,6 +600,44 @@ def api_add_manual():
     if validation_warning:
         resp["warning"] = validation_warning
     return jsonify(resp)
+
+
+@app.route("/api/cash", methods=["POST"])
+@login_required
+def api_cash_add():
+    data = request.get_json(silent=True) or {}
+    currency = str(data.get("currency") or "").strip().upper()
+    if currency not in {"HUF", "EUR", "USD"}:
+        return jsonify({"ok": False, "error": "Érvénytelen készpénzdeviza."}), 400
+    try:
+        amount = float(data.get("amount"))
+        if amount <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Az összeg legyen nullánál nagyobb."}), 400
+    purchase_date = str(data.get("purchase_date") or "").strip() or None
+    if purchase_date:
+        try:
+            datetime.strptime(purchase_date, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"ok": False, "error": "A dátum ÉÉÉÉ-HH-NN formátumú legyen."}), 400
+    uid = current_user_id()
+    ticker = f"CASH-{currency}"
+    saved = insert_portfolio_item(uid, {
+        "ticker": ticker,
+        "name": f"Készpénz ({currency})",
+        "qty": amount,
+        "currency": currency,
+        "exchange": "",
+        "source": "cash/manual",
+        "manually_added": True,
+        "purchase_price": 1,
+        "purchase_date": purchase_date,
+        "purchase_cost": 0,
+        "purchase_price_source": "manual",
+    })
+    log_event(uid, "portfolio_cash_add", f"ticker={ticker} amount={amount}", _client_ip())
+    return jsonify({"ok": True, "item": saved, "message": "Készpénz hozzáadva."})
 
 
 # ---------------------------------------------------------------------------

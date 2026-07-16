@@ -28,6 +28,21 @@ _HU_TICKER_ALIASES = {
     "ANY": "ANY.BD",
 }
 
+_CASH_CURRENCIES = {"HUF", "EUR", "USD"}
+
+
+def is_cash_ticker(ticker: str) -> bool:
+    """Return whether ticker is one of the supported synthetic cash items."""
+    return str(ticker or "").strip().upper() in {f"CASH-{c}" for c in _CASH_CURRENCIES}
+
+
+def cash_currency_from_ticker(ticker: str) -> str | None:
+    """Extract the currency from a supported synthetic cash ticker."""
+    normalized = str(ticker or "").strip().upper()
+    if not is_cash_ticker(normalized):
+        return None
+    return normalized.removeprefix("CASH-")
+
 
 def normalize_ticker(ticker: str) -> str:
     """Canonical display ticker used for storage, lookup and cache keys."""
@@ -193,6 +208,17 @@ def get_last_price(ticker: str, force_refresh: bool = False) -> dict:
     G) symbols cache last_price (stale=True)
     """
     clean_ticker = normalize_ticker(ticker)
+    cash_currency = cash_currency_from_ticker(clean_ticker)
+    if cash_currency:
+        return _quote(
+            1.0,
+            cash_currency,
+            "Készpénz",
+            quote_time=None,
+            stale=False,
+            delayed=False,
+            market_state="CASH",
+        )
     key = PRICE_CACHE_PREFIX + clean_ticker
 
     # A) Memory cache
@@ -247,6 +273,17 @@ def get_historical_price(ticker: str, requested_date: str) -> dict:
         target = datetime.strptime(str(requested_date), "%Y-%m-%d").date()
     except (TypeError, ValueError):
         return {"ok": False, "error": "Invalid date"}
+    cash_currency = cash_currency_from_ticker(clean_ticker)
+    if cash_currency:
+        return {
+            "ok": True,
+            "ticker": clean_ticker,
+            "requested_date": target.isoformat(),
+            "used_date": target.isoformat(),
+            "price": 1.0,
+            "currency": cash_currency,
+            "source": "Készpénz",
+        }
 
     start = target - timedelta(days=14)
     end = target + timedelta(days=1)
@@ -309,6 +346,9 @@ def _fetch_price_yfinance(ticker: str) -> dict | None:
                 delayed=False,
             )
             if quote:
+                if quote.get("market_state") == "CLOSED":
+                    quote["delayed"] = True
+                    quote["source"] = "Piac zárva – utolsó elérhető záróár"
                 logger.info("quote ticker=%s provider=Yahoo Finance ok interval=%s quote_time=%s", ticker, interval, quote.get("quote_time"))
                 return quote
         except Exception as exc:
@@ -327,12 +367,13 @@ def _fetch_price_yfinance(ticker: str) -> dict | None:
             except Exception:
                 quote_time = None
         if p is not None:
+            closed = str(market_state or "").upper() == "CLOSED"
             return _quote(
                 p,
                 c,
-                "Yahoo Finance",
+                "Piac zárva – utolsó elérhető záróár" if closed else "Yahoo Finance",
                 quote_time=quote_time,
-                delayed=False,
+                delayed=closed,
                 market_state=str(market_state).upper() if market_state else "UNKNOWN",
             )
     except Exception:
@@ -342,7 +383,7 @@ def _fetch_price_yfinance(ticker: str) -> dict | None:
     try:
         quote = _quote_from_history(
             t,
-            "Yahoo Finance - utolsó záróár",
+            "Piac zárva – utolsó elérhető záróár",
             period="5d",
             interval="1d",
             delayed=True,
@@ -475,6 +516,14 @@ def get_ticker_info(ticker: str) -> dict | None:
     """Lekéri egy ticker alapadatait validáláshoz (kézi hozzáadásnál)."""
     try:
         ticker = normalize_ticker(ticker)
+        cash_currency = cash_currency_from_ticker(ticker)
+        if cash_currency:
+            return {
+                "name": f"Készpénz ({cash_currency})",
+                "currency": cash_currency,
+                "exchange": "",
+                "last_price": 1.0,
+            }
         t = yf.Ticker(ticker)
         fi = t.fast_info
         price = getattr(fi, "last_price", None)

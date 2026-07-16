@@ -22,6 +22,9 @@ SEARCH_CACHE_TTL = 3600  # 1 óra
 # HELYI FALLBACK LISTA
 # ---------------------------------------------------------------------------
 LOCAL_FALLBACK: list[dict] = [
+    {"ticker": "CASH-HUF", "name": "Készpénz (HUF)", "currency": "HUF", "exchange": "", "aliases": ["kp", "készpénz", "cash", "huf"]},
+    {"ticker": "CASH-EUR", "name": "Készpénz (EUR)", "currency": "EUR", "exchange": "", "aliases": ["kp", "készpénz", "cash", "eur"]},
+    {"ticker": "CASH-USD", "name": "Készpénz (USD)", "currency": "USD", "exchange": "", "aliases": ["kp", "készpénz", "cash", "usd"]},
     # Magyar részvények (BÉT)
     {"ticker": "OTP.BD",      "name": "OTP Bank",              "currency": "HUF", "exchange": "BUD", "aliases": ["otp", "otp bank", "otpb"]},
     {"ticker": "MOL.BD",      "name": "MOL Magyar Olaj- és Gázipari Nyrt.", "currency": "HUF", "exchange": "BUD", "aliases": ["mol"]},
@@ -255,6 +258,15 @@ def search(query: str) -> dict:
         return {"results": [], "errors": [], "timestamp": _ts(), "source": "none"}
 
     local_results = _search_local(query)
+    cash_queries = {"kp", "készpénz", "keszpenz", "cash", "huf", "eur", "usd"}
+    if _normalize(query) in cash_queries:
+        cash_results = [item for item in local_results if str(item.get("ticker", "")).startswith("CASH-")]
+        return {
+            "results": cash_results,
+            "errors": [],
+            "timestamp": _ts(),
+            "source": "local",
+        }
     yahoo_results, yahoo_errors = _search_yahoo(query)
 
     # Összefűzés, duplikátum szűrés

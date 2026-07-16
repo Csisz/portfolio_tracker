@@ -371,6 +371,69 @@ def test_portfolio_patch_purchase_fields(client):
     assert saved["purchase_price_source"] == "historical"
 
 
+def test_portfolio_patch_quantity_and_purchase_fields_together_keeps_order(client):
+    client.post("/api/portfolio", json=[
+        {"ticker": "AAPL", "name": "Apple", "qty": 1},
+        {"ticker": "MSFT", "name": "Microsoft", "qty": 2},
+    ])
+    before = client.get("/api/portfolio").get_json()
+    item_id = before[0]["id"]
+    r = client.patch(f"/api/portfolio/{item_id}", json={
+        "qty": 3, "purchase_price": 175.5, "purchase_date": "2024-02-03", "purchase_cost": 4.5
+    })
+    assert r.status_code == 200
+    after = client.get("/api/portfolio").get_json()
+    assert [item["id"] for item in after] == [item["id"] for item in before]
+    assert after[0]["qty"] == 3.0
+    assert after[0]["purchase_price"] == 175.5
+    assert after[0]["purchase_date"] == "2024-02-03"
+    assert after[0]["purchase_cost"] == 4.5
+    assert after[0]["purchase_price_source"] == "manual"
+
+
+def test_portfolio_patch_validates_and_can_clear_optional_fields(client):
+    client.post("/api/portfolio", json=[{
+        "ticker": "AAPL", "name": "Apple", "qty": 1,
+        "purchase_price": 150, "purchase_date": "2024-01-01", "purchase_cost": 2,
+    }])
+    item_id = client.get("/api/portfolio").get_json()[0]["id"]
+    for payload in ({"qty": 0}, {"purchase_price": -1}, {"purchase_cost": -1}, {"purchase_date": "01-02-2024"}):
+        assert client.patch(f"/api/portfolio/{item_id}", json=payload).status_code == 400
+    r = client.patch(f"/api/portfolio/{item_id}", json={
+        "purchase_price": None, "purchase_date": "", "purchase_cost": None, "not_a_column": "ignored"
+    })
+    assert r.status_code == 200
+    saved = r.get_json()["item"]
+    assert saved["purchase_price"] is None
+    assert saved["purchase_date"] is None
+    assert saved["purchase_cost"] is None
+
+
+def test_cash_can_be_added_as_separate_lots_and_quoted_without_external_calls(client):
+    with patch("services.stocks._fetch_price_yfinance") as yahoo, patch("services.stocks._fetch_price_stooq") as stooq:
+        first = client.post("/api/cash", json={"currency": "HUF", "amount": 100000})
+        second = client.post("/api/cash", json={"currency": "HUF", "amount": 25000})
+        quote = client.post("/api/prices", json={"tickers": ["CASH-HUF"]})
+    assert first.status_code == second.status_code == quote.status_code == 200
+    yahoo.assert_not_called()
+    stooq.assert_not_called()
+    portfolio = client.get("/api/portfolio").get_json()
+    assert len(portfolio) == 2
+    assert [item["qty"] for item in portfolio] == [100000.0, 25000.0]
+    assert all(item["purchase_price"] == 1.0 for item in portfolio)
+    assert quote.get_json()["prices"]["CASH-HUF"]["price"] == 1.0
+
+
+def test_huf_cash_total_needs_no_fx(client):
+    from app import _portfolio_total_huf
+    total = _portfolio_total_huf(
+        [{"ticker": "CASH-HUF", "qty": 100000, "currency": "HUF"}],
+        {"CASH-HUF": {"price": 1, "currency": "HUF"}},
+        {},
+    )
+    assert total == 100000.0
+
+
 def test_portfolio_rejects_negative_purchase_cost(client):
     r = client.post("/api/portfolio", json=[{
         "ticker": "AAPL",

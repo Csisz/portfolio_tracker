@@ -10,7 +10,8 @@ from unittest.mock import patch, MagicMock
 
 from services.stocks import (
     _bd_to_stooq, _to_stooq, _fetch_price_stooq, _fetch_price_yfinance, get_historical_price,
-    get_last_price, get_prices_for_tickers, normalize_ticker,
+    get_last_price, get_prices_for_tickers, is_cash_ticker, cash_currency_from_ticker,
+    normalize_ticker,
 )
 
 
@@ -41,6 +42,38 @@ def test_normalize_hungarian_blue_chips():
     assert normalize_ticker("otp") == "OTP.BD"
     assert normalize_ticker("MOL") == "MOL.BD"
     assert normalize_ticker("MOL.BD") == "MOL.BD"
+
+
+def test_cash_helpers_only_accept_supported_synthetic_tickers():
+    assert is_cash_ticker("cash-huf") is True
+    assert cash_currency_from_ticker("CASH-EUR") == "EUR"
+    assert is_cash_ticker("EUR") is False
+    assert cash_currency_from_ticker("CASH-GBP") is None
+
+
+def test_cash_huf_quote_is_exact_and_never_calls_providers():
+    with patch("services.stocks._fetch_price_yfinance") as yahoo, \
+         patch("services.stocks._fetch_price_stooq") as stooq, \
+         patch("services.stocks._get_stale_price") as stale:
+        quote = get_last_price("CASH-HUF", force_refresh=True)
+    yahoo.assert_not_called()
+    stooq.assert_not_called()
+    stale.assert_not_called()
+    assert quote["price"] == 1.0
+    assert quote["currency"] == "HUF"
+    assert quote["source"] == "Készpénz"
+    assert quote["stale"] is False
+    assert quote["delayed"] is False
+
+
+def test_cash_eur_quote_is_exact_and_never_calls_providers():
+    with patch("services.stocks.yf.Ticker") as yahoo, patch("services.stocks.requests.get") as stooq:
+        result = get_prices_for_tickers(["CASH-EUR"])
+    yahoo.assert_not_called()
+    stooq.assert_not_called()
+    assert result["prices"]["CASH-EUR"]["price"] == 1.0
+    assert result["prices"]["CASH-EUR"]["currency"] == "EUR"
+    assert result["errors"] == []
 
 
 def test_stooq_mapping_mol():
@@ -335,7 +368,25 @@ def test_yfinance_daily_fallback_is_delayed():
 
     assert quote["price"] == 190.0
     assert quote["delayed"] is True
-    assert "záróár" in quote["source"]
+    assert quote["market_state"] == "CLOSED"
+    assert quote["quote_time"].startswith("2026-06-03")
+    assert quote["source"] == "Piac zárva – utolsó elérhető záróár"
+
+
+def test_closed_intraday_quote_is_not_labeled_live():
+    import pandas as pd
+    fake_ticker = MagicMock()
+    fake_ticker.fast_info.currency = "USD"
+    fake_ticker.fast_info.market_state = "CLOSED"
+    fake_ticker.history.return_value = pd.DataFrame(
+        {"Close": [195.0]}, index=pd.to_datetime(["2026-06-05 20:00:00+00:00"])
+    )
+    with patch("services.stocks.yf.Ticker", return_value=fake_ticker):
+        quote = _fetch_price_yfinance("AAPL")
+    assert quote["price"] == 195.0
+    assert quote["delayed"] is True
+    assert quote["market_state"] == "CLOSED"
+    assert quote["source"] == "Piac zárva – utolsó elérhető záróár"
 
 
 def test_get_historical_price_uses_previous_trading_day():
