@@ -55,6 +55,7 @@ LOCAL_FALLBACK: list[dict] = [
     {"ticker": "AZN.L",   "name": "AstraZeneca PLC",             "currency": "GBp", "exchange": "LSE",   "aliases": ["astrazeneca", "azn"]},
     {"ticker": "OMV.VI",  "name": "OMV AG",                      "currency": "EUR", "exchange": "WBAG",  "aliases": ["omv"]},
     # Egyéb
+    {"ticker": "SSU.F", "name": "Samsung Electronics Co. Ltd. GDR", "currency": "EUR", "exchange": "Frankfurt", "aliases": ["samsung", "samsung electronics", "sameq", "sameq.f", "ssu", "ssu.de", "ssu.f", "smsn", "us7960508882"]},
     {"ticker": "005930.KS", "name": "Samsung Electronics",       "currency": "KRW", "exchange": "KRX",   "aliases": ["samsung"]},
 ]
 

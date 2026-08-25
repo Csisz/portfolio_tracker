@@ -5,10 +5,10 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from services.stocks import get_last_price
+from services.stocks import get_last_price, get_ticker_info
 
 
-TICKERS = ["OTP.BD", "MOL.BD", "ANY.BD", "AAPL", "EURHUF=X", "USDHUF=X"]
+TICKERS = ["OTP.BD", "MOL.BD", "ANY.BD", "AAPL", "SSU.F", "SSU.DE", "EURHUF=X", "USDHUF=X"]
 
 
 def _age_seconds(quote_time):
@@ -27,8 +27,12 @@ def main():
     for ticker in TICKERS:
         try:
             quote = get_last_price(ticker, force_refresh=True)
+            info = get_ticker_info(ticker) if ticker in {"SSU.F", "SSU.DE"} else {}
             rows.append({
                 "ticker": ticker,
+                "provider_ticker": quote.get("provider_ticker") or ticker,
+                "security_name": info.get("name"),
+                "exchange": info.get("exchange"),
                 "price": quote.get("price"),
                 "currency": quote.get("currency"),
                 "source": quote.get("source"),

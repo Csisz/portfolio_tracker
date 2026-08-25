@@ -258,7 +258,7 @@
     <div class="card">
       <div class="card-label">Aktuális portfólióérték</div>
       <div class="card-value" id="total-huf">–</div>
-      <div class="card-secondary"><span id="total-usd">–</span> · <span id="total-eur">–</span></div>
+      <div class="card-secondary"><span id="total-usd">Teljes portfólió USD-ban: –</span><br><span id="total-eur">Teljes portfólió EUR-ban: –</span></div>
     </div>
     <div class="card">
       <div class="card-label">Befektetett érték</div>
@@ -273,12 +273,13 @@
     <div class="card">
       <div class="card-label">Teljes hozam</div>
       <div class="card-value" id="total-return">–</div>
-      <div class="card-sub">saját devizás eredményekből</div>
+      <div class="card-sub">HUF-ra átszámított részvényeredményből</div>
     </div>
   </div>
   <div class="manual-hint" style="margin:-12px 0 18px">
     A HUF értékek a jelenlegi devizaárfolyamon számítva.
   </div>
+  <div class="manual-status warn" id="calculation-warning" style="display:none;margin:-10px 0 18px"></div>
 
   <!-- Valutasáv -->
   <div class="fx-bar" id="fx-bar">
@@ -564,6 +565,7 @@
   let fxRequestedMode = 'market';
   let fxMarket = {};
   let fxOfficial = {};
+  let serverValuation = null;
   let searchTimeout = null;
   let selectedStock = null;
   let editingItemIndex = null;
@@ -781,6 +783,21 @@
     }
   }
 
+  async function loadValuation() {
+    try {
+      const r = await apiFetch('/api/portfolio/valuation', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({prices, fx})
+      });
+      if (!r || !r.ok) throw new Error('HTTP ' + (r ? r.status : ''));
+      serverValuation = await r.json();
+    } catch(e) {
+      serverValuation = null;
+      appendBanner('A portfólió összesítése most nem érhető el.');
+    }
+  }
+
   // ========== REFRESH ==========
   async function refreshAll(forceRefresh = false) {
     if (refreshInProgress) return;
@@ -791,6 +808,7 @@
     clearBanner();
     try {
       await Promise.all([loadFx(), loadPrices(forceRefresh)]);
+      await loadValuation();
       renderFxBar();
       renderTable();
       calcTotals();
@@ -924,7 +942,8 @@
     const purchaseCostRaw = s.purchase_cost != null && s.purchase_cost !== '' ? Number(s.purchase_cost) : 0;
     const purchaseCost = Number.isFinite(purchaseCostRaw) && purchaseCostRaw >= 0 ? purchaseCostRaw : 0;
     const purchasePrice = isUsablePurchasePrice(storedPurchasePrice, qty, price) ? storedPurchasePrice : null;
-    const hasPurchase = validQty && isUsablePurchasePrice(purchasePrice, qty, price);
+    const isCash = String(s.ticker || '').startsWith('CASH-');
+    const hasPurchase = !isCash && validQty && isUsablePurchasePrice(purchasePrice, qty, price);
     const investedValue = hasPurchase ? purchasePrice * qty + purchaseCost : null;
     const investedHuf = toHufValue(investedValue, currency);
     const profitLoss = currentValue != null && investedValue != null ? currentValue - investedValue : null;
@@ -954,10 +973,12 @@
         const priceFormatted = price.toLocaleString('hu-HU', {minimumFractionDigits: isCash ? 0 : 2, maximumFractionDigits: isCash ? 0 : 4}) + ' ' + (currency || '');
         const quoteTime = p.quote_time || p.timestamp;
         const timeHtml = quoteTime ? `<span class="cell-sub">Árfolyam időpontja: ${fmtDateTime(quoteTime)}</span>` : '';
+        const providerTickerHtml = p.provider_ticker ? `<span class="cell-sub">Yahoo ticker: ${escapeHtml(p.provider_ticker)}</span>` : '';
         const state = priceStateText(p);
         priceStr = priceFormatted
           + (srcLabel ? `<span class="src-badge">${srcLabel}</span>` : '')
           + timeHtml
+          + providerTickerHtml
           + (state ? `<span class="cell-sub">${state}</span>` : '');
       } else if (p === undefined) {
         priceStr = '<span class="loading-cell">–</span>';
@@ -975,11 +996,15 @@
         hufStr = '';
       }
       const isCash = String(s.ticker || '').startsWith('CASH-');
-      const purchaseInfo = m.hasPurchase
-        ? `<div class="stock-purchase">Vételi ár: ${fmtMoney(m.purchasePrice, currency)}${s.purchase_date ? `<br>Vétel: ${fmtDate(s.purchase_date)}` : ''}</div>`
-        : '<div class="stock-purchase">Vételi ár nincs megadva</div>';
-      let resultStr = '<span class="result-neutral">Vételi ár nincs megadva</span>';
-      if (m.profitLoss != null) {
+      const purchaseInfo = isCash
+        ? '<div class="stock-purchase">Készpénz – nem része a hozamszámításnak</div>'
+        : m.hasPurchase
+          ? `<div class="stock-purchase">Vételi ár: ${fmtMoney(m.purchasePrice, currency)}${s.purchase_date ? `<br>Vétel: ${fmtDate(s.purchase_date)}` : ''}</div>`
+          : '<div class="stock-purchase">Vételi ár nincs megadva</div>';
+      let resultStr = isCash
+        ? '<span class="result-neutral">Nem része a hozamszámításnak</span>'
+        : '<span class="result-neutral">Vételi ár nincs megadva</span>';
+      if (!isCash && m.profitLoss != null) {
         const cls = m.profitLoss > 0 ? 'result-positive' : (m.profitLoss < 0 ? 'result-negative' : 'result-neutral');
         const pct = m.returnPct != null ? m.returnPct.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%' : '-';
         resultStr = `<span class="${cls}">${fmtMoney(m.profitLoss, currency)}</span><span class="cell-sub">${pct}</span>`;
@@ -1008,7 +1033,7 @@
         <td class="num">${valStr}${hufStr}</td>
         <td class="num">${resultStr}</td>
         <td class="num"><div class="cost-inline">
-          <input id="purchase-cost-${i}" type="number" min="0" step="any" value="${escapeHtml(purchaseCostVal)}" onblur="savePurchaseCost(${i})" placeholder="0" title="Opcionális vételi költség">
+          <input id="purchase-cost-${i}" type="number" min="0" step="any" value="${isCash ? 0 : escapeHtml(purchaseCostVal)}" onblur="savePurchaseCost(${i})" placeholder="0" title="${isCash ? 'Készpénznél nincs vételi költség' : 'Opcionális vételi költség'}" ${isCash ? 'disabled' : ''}>
         </div></td>
         <td><div class="row-actions"><button class="btn-edit" onclick="openItemEditor(${i})" title="Tétel szerkesztése" aria-label="Szerkesztés">✎</button><button class="btn-del" onclick="removeStock(${i},${itemId})" title="Törlés">×</button></div></td>
       </tr>`;
@@ -1017,31 +1042,16 @@
   }
 
   function calcTotals() {
-    let totalHUF = 0, totalInvestedHUF = 0, totalCurrentWithPurchaseHUF = 0;
-    let totalInvestedOwn = 0, totalProfitOwn = 0;
-    let hasData = false, hasInvested = false, hasOwnReturn = false;
-    portfolio.forEach(s => {
-      const m = getPositionMetrics(s);
-      if (m.currentHuf != null) { totalHUF += m.currentHuf; hasData = true; }
-      if (m.investedHuf != null) {
-        totalInvestedHUF += m.investedHuf;
-        hasInvested = true;
-        if (m.currentHuf != null) totalCurrentWithPurchaseHUF += m.currentHuf;
-      }
-      if (m.investedValue != null && m.profitLoss != null) {
-        totalInvestedOwn += m.investedValue;
-        totalProfitOwn += m.profitLoss;
-        hasOwnReturn = true;
-      }
-    });
-    if (!hasData) return;
-    const totalUSD = fx['USD/HUF'] ? totalHUF / fx['USD/HUF'] : null;
-    const totalEUR = fx['EUR/HUF'] ? totalHUF / fx['EUR/HUF'] : null;
-    document.getElementById('total-huf').textContent = Math.round(totalHUF).toLocaleString('hu-HU') + ' Ft';
-    document.getElementById('total-usd').textContent = totalUSD ? '$' + Math.round(totalUSD).toLocaleString('hu-HU') : '–';
-    document.getElementById('total-eur').textContent = totalEUR ? '€' + Math.round(totalEUR).toLocaleString('hu-HU') : '–';
-    document.getElementById('total-invested').textContent = hasInvested ? fmtMoney(Math.round(totalInvestedHUF), 'HUF') : '–';
-    const pl = hasInvested ? totalCurrentWithPurchaseHUF - totalInvestedHUF : null;
+    const summary = serverValuation && serverValuation.summary;
+    if (!summary) return;
+    const totalHUF = summary.current_portfolio_huf;
+    const totalUSD = totalHUF != null && fx['USD/HUF'] ? totalHUF / fx['USD/HUF'] : null;
+    const totalEUR = totalHUF != null && fx['EUR/HUF'] ? totalHUF / fx['EUR/HUF'] : null;
+    document.getElementById('total-huf').textContent = totalHUF != null ? Math.round(totalHUF).toLocaleString('hu-HU') + ' Ft' : '–';
+    document.getElementById('total-usd').textContent = 'Teljes portfólió USD-ban: ' + (totalUSD != null ? '$' + Math.round(totalUSD).toLocaleString('hu-HU') : '–');
+    document.getElementById('total-eur').textContent = 'Teljes portfólió EUR-ban: ' + (totalEUR != null ? '€' + Math.round(totalEUR).toLocaleString('hu-HU') : '–');
+    document.getElementById('total-invested').textContent = summary.invested_huf > 0 ? fmtMoney(Math.round(summary.invested_huf), 'HUF') : '–';
+    const pl = summary.profit_loss_huf;
     const plEl = document.getElementById('total-pl');
     const retEl = document.getElementById('total-return');
     plEl.classList.remove('positive', 'negative');
@@ -1053,14 +1063,20 @@
     } else {
       plEl.textContent = '–';
     }
-    if (hasOwnReturn && totalInvestedOwn > 0) {
-      const ret = (totalProfitOwn / totalInvestedOwn) * 100;
+    if (summary.return_pct != null) {
+      const ret = summary.return_pct;
       retEl.textContent = ret.toLocaleString('hu-HU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
       if (ret > 0) retEl.classList.add('positive');
       if (ret < 0) retEl.classList.add('negative');
     } else {
       retEl.textContent = '–';
     }
+    const warning = document.getElementById('calculation-warning');
+    const warnings = [];
+    if (summary.missing_purchase_data) warnings.push('A teljes hozam hiányos lehet, mert egy vagy több részvénynél nincs érvényes vételi ár.');
+    if (summary.incomplete_huf_value) warnings.push('A HUF összesítés hiányos, mert egy szükséges árfolyam nem érhető el.');
+    warning.textContent = warnings.join(' ');
+    warning.style.display = warnings.length ? 'block' : 'none';
   }
 
   // ========== QTY SZERKESZTÉS ==========
@@ -1101,6 +1117,7 @@
       await saveToServer();
     }
     renderTable();
+    await loadValuation();
     calcTotals();
   }
 
@@ -1127,6 +1144,7 @@
     // Újratöltés a szerverről
     const r = await apiFetch('/api/portfolio');
     if (r) portfolio = await r.json();
+    await loadValuation();
     renderTable();
     calcTotals();
     calcComposition();
@@ -1136,41 +1154,28 @@
   function calcComposition() {
     const row = document.getElementById('composition-row');
     if (!portfolio.length) { row.style.display = 'none'; return; }
-    const groups = {};
-    let noPrice = 0;
-    portfolio.forEach(s => {
-      const p = prices[s.ticker];
-      if (!p || p.price == null) { noPrice++; return; }
-      const c = (p.currency || s.currency || 'UNKNOWN').toUpperCase();
-      const val = p.price * s.qty;
-      if (!groups[c]) groups[c] = {value: 0, huf: 0, count: 0};
-      groups[c].value += val;
-      groups[c].count++;
-      let huf = 0;
-      if (c === 'HUF') huf = val;
-      else if (fx[c + '/HUF']) huf = val * fx[c + '/HUF'];
-      else if ((c === 'GBP' || c === 'GBX') && fx['GBP/HUF']) huf = val * fx['GBP/HUF'] / 100;
-      groups[c].huf += huf;
-    });
+    const groups = (serverValuation && serverValuation.composition) || [];
+    if (!groups.length) {
+      row.innerHTML = '<div class="comp-card"><div class="comp-label">Részvényösszetétel</div><div class="comp-value" style="font-size:17px;color:#777">Nincs részvénypozíció</div></div>';
+      row.style.display = 'grid';
+      return;
+    }
     let cards = '';
     const priority = ['HUF','USD','EUR','GBP'];
-    const sorted = [...priority.filter(c => groups[c]), ...Object.keys(groups).filter(c => !priority.includes(c))];
-    sorted.forEach(c => {
-      const g = groups[c];
-      const valFmt = Math.round(g.value).toLocaleString('hu-HU') + ' ' + c;
-      const hufFmt = g.huf ? Math.round(g.huf).toLocaleString('hu-HU') + ' Ft' : (c === 'HUF' ? '' : '(nincs devizaárfolyam)');
+    const sorted = [...groups].sort((a, b) => {
+      const ai = priority.indexOf(a.currency), bi = priority.indexOf(b.currency);
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+    });
+    sorted.forEach(g => {
+      const c = g.currency;
+      const valFmt = Math.round(g.current_value_native).toLocaleString('hu-HU') + ' ' + c;
+      const hufFmt = g.huf_complete ? Math.round(g.current_value_huf).toLocaleString('hu-HU') + ' Ft' : '(nincs devizaárfolyam)';
       cards += `<div class="comp-card">
         <div class="comp-label">${c} részvények (${g.count} db)</div>
         <div class="comp-value">${valFmt}</div>
         ${c !== 'HUF' && hufFmt ? `<div class="comp-sub">${hufFmt}</div>` : ''}
       </div>`;
     });
-    if (noPrice > 0) {
-      cards += `<div class="comp-card">
-        <div class="comp-label">Árfolyam nélkül</div>
-        <div class="comp-value" style="font-size:17px;color:#bbb">${noPrice} db</div>
-      </div>`;
-    }
     row.innerHTML = cards;
     row.style.display = 'grid';
   }
@@ -1486,6 +1491,7 @@
     if (pr) portfolio = await pr.json();
     renderTable();
     await loadPrices();
+    await loadValuation();
     renderTable();
     calcTotals();
     calcComposition();
@@ -1534,6 +1540,7 @@
       if (resp) portfolio = await resp.json();
       renderTable();
       await loadPrices();
+      await loadValuation();
       renderTable();
       calcTotals();
       calcComposition();
@@ -1603,6 +1610,7 @@
     }
     portfolio.push(d.item);
     prices[d.item.ticker] = {price:1, currency, source:'Készpénz', stale:false, delayed:false, market_state:'CASH'};
+    await loadValuation();
     document.getElementById('cash-amount').value = '';
     document.getElementById('cash-date').value = '';
     status.className = 'manual-status ok'; status.textContent = d.message || 'Készpénz hozzáadva.';
@@ -1751,6 +1759,7 @@
       return;
     }
     portfolio[i] = d.item || {...portfolio[i], ...payload};
+    await loadValuation();
     renderTable();
     calcTotals();
   }
@@ -1764,6 +1773,13 @@
     document.getElementById('edit-date').value = item.purchase_date || '';
     document.getElementById('edit-price').value = item.purchase_price ?? '';
     document.getElementById('edit-cost').value = item.purchase_cost ?? '';
+    const isCash = String(item.ticker || '').startsWith('CASH-');
+    document.getElementById('edit-price').disabled = isCash;
+    document.getElementById('edit-cost').disabled = isCash;
+    if (isCash) {
+      document.getElementById('edit-price').value = 1;
+      document.getElementById('edit-cost').value = 0;
+    }
     const error = document.getElementById('edit-error'); error.textContent = ''; error.classList.remove('visible');
     document.getElementById('edit-backdrop').classList.add('visible');
     document.getElementById('edit-qty').focus();
@@ -1784,8 +1800,8 @@
     const payload = {
       qty,
       purchase_date: document.getElementById('edit-date').value || null,
-      purchase_price: priceRaw === '' ? null : Number(priceRaw),
-      purchase_cost: costRaw === '' ? null : Number(costRaw),
+      purchase_price: String(item.ticker || '').startsWith('CASH-') ? 1 : (priceRaw === '' ? null : Number(priceRaw)),
+      purchase_cost: String(item.ticker || '').startsWith('CASH-') ? 0 : (costRaw === '' ? null : Number(costRaw)),
       purchase_price_source: priceRaw === '' ? null : 'manual'
     };
     const error = document.getElementById('edit-error');
@@ -1798,6 +1814,7 @@
       error.textContent = d.error || 'A tétel mentése nem sikerült.'; error.classList.add('visible'); return;
     }
     portfolio[i] = d.item;
+    await loadValuation();
     closeItemEditor();
     renderTable(); calcTotals(); calcComposition();
   }

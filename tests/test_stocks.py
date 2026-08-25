@@ -214,6 +214,44 @@ def test_get_last_price_yahoo_wins_over_stooq():
     assert quote["source"] == "Yahoo Finance"
 
 
+def test_existing_samsung_xetra_ticker_uses_frankfurt_yahoo_quote():
+    from services import cache as svc_cache
+    svc_cache.delete("price:SSU.DE")
+
+    with patch("services.stocks._fetch_price_yfinance", return_value=_quote(1410.0, "EUR")) as yahoo, \
+         patch("services.stocks._fetch_price_stooq") as stooq:
+        quote = get_last_price("SSU.DE", force_refresh=True)
+
+    yahoo.assert_called_once_with("SSU.F")
+    stooq.assert_not_called()
+    assert quote["price"] == 1410.0
+    assert quote["currency"] == "EUR"
+    assert quote["provider_ticker"] == "SSU.F"
+
+
+def test_samsung_frankfurt_ticker_quotes_directly():
+    from services import cache as svc_cache
+    svc_cache.delete("price:SSU.F")
+
+    with patch("services.stocks._fetch_price_yfinance", return_value=_quote(1410.0, "EUR")) as yahoo:
+        quote = get_last_price("SSU.F", force_refresh=True)
+
+    yahoo.assert_called_once_with("SSU.F")
+    assert quote["price"] == 1410.0
+    assert quote["currency"] == "EUR"
+    assert "provider_ticker" not in quote
+
+
+def test_generic_de_ticker_is_not_affected_by_samsung_provider_alias():
+    from services import cache as svc_cache
+    svc_cache.delete("price:BMW.DE")
+
+    with patch("services.stocks._fetch_price_yfinance", return_value=_quote(85.0, "EUR")) as yahoo:
+        get_last_price("BMW.DE", force_refresh=True)
+
+    yahoo.assert_called_once_with("BMW.DE")
+
+
 def test_get_last_price_uses_memory_cache_when_not_forced():
     from services import cache as svc_cache
     svc_cache.set("price:AAPL", _quote(100.0, "USD", "Yahoo Finance", quote_time="2026-06-04T10:00:00+02:00"), 600)

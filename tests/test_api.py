@@ -424,6 +424,18 @@ def test_cash_can_be_added_as_separate_lots_and_quoted_without_external_calls(cl
     assert quote.get_json()["prices"]["CASH-HUF"]["price"] == 1.0
 
 
+def test_cash_patch_keeps_unit_price_one_and_cost_zero(client):
+    created = client.post("/api/cash", json={"currency": "EUR", "amount": 250}).get_json()["item"]
+    response = client.patch(f"/api/portfolio/{created['id']}", json={
+        "qty": 300, "purchase_price": 42, "purchase_cost": 9,
+    })
+    assert response.status_code == 200
+    updated = response.get_json()["item"]
+    assert updated["qty"] == 300
+    assert updated["purchase_price"] == 1
+    assert updated["purchase_cost"] == 0
+
+
 def test_huf_cash_total_needs_no_fx(client):
     from app import _portfolio_total_huf
     total = _portfolio_total_huf(
@@ -928,6 +940,68 @@ def test_export_xlsx_follows_manual_portfolio_order(client):
 def test_export_xlsx_empty_portfolio_400(client):
     r = client.get("/api/export/xlsx")
     assert r.status_code == 400
+
+
+# ===========================================================================
+# /api/excel/portfolio – read-only Power Query API
+# ===========================================================================
+
+def test_excel_api_missing_server_configuration_is_closed(client, monkeypatch):
+    monkeypatch.delenv("EXCEL_API_KEY", raising=False)
+    monkeypatch.delenv("EXCEL_API_USERNAME", raising=False)
+    assert client.get("/api/excel/portfolio").status_code == 503
+
+
+def test_excel_api_rejects_missing_and_incorrect_keys(client, monkeypatch):
+    monkeypatch.setenv("EXCEL_API_KEY", "correct-secret")
+    monkeypatch.setenv("EXCEL_API_USERNAME", "admin")
+    assert client.get("/api/excel/portfolio").status_code == 401
+    assert client.get("/api/excel/portfolio", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.get("/api/excel/portfolio?api_key=correct-secret").status_code == 401
+
+
+def test_excel_api_returns_shared_cash_safe_summary(client, monkeypatch):
+    monkeypatch.setenv("EXCEL_API_KEY", "correct-secret")
+    monkeypatch.setenv("EXCEL_API_USERNAME", "admin")
+    client.post("/api/portfolio", json=[{
+        "ticker": "AAPL", "name": "Apple", "qty": 10, "currency": "USD",
+        "purchase_price": 100, "purchase_cost": 10,
+    }, {
+        "ticker": "CASH-USD", "name": "Készpénz (USD)", "qty": 500,
+        "currency": "USD", "purchase_price": 999, "purchase_cost": 99,
+    }])
+    with patch("app.get_prices_for_tickers", return_value={
+        "prices": {"AAPL": {"price": 120, "currency": "USD", "source": "mock"}},
+        "errors": [],
+    }), patch("app.get_fx_rates", return_value={"fx": {"USD/HUF": 360}}):
+        response = client.get("/api/excel/portfolio", headers={"X-API-Key": "correct-secret"})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["summary"]["current_portfolio_huf"] == 612_000
+    assert body["summary"]["invested_huf"] == 363_600
+    assert body["summary"]["profit_loss_huf"] == 68_400
+    assert body["summary"]["return_pct"] == pytest.approx(18.811881)
+    assert len(body["portfolio"]) == 2
+    cash = next(row for row in body["portfolio"] if row["is_cash"])
+    assert cash["current_price"] == 1
+    assert cash["invested_value_huf"] == 0
+    assert body["composition"][0]["count"] == 1
+
+
+def test_excel_api_is_get_only_and_key_does_not_authorize_writes(client, monkeypatch):
+    monkeypatch.setenv("EXCEL_API_KEY", "correct-secret")
+    monkeypatch.setenv("EXCEL_API_USERNAME", "admin")
+    response = client.post("/api/excel/portfolio", headers={"X-API-Key": "correct-secret"}, json={})
+    assert response.status_code == 405
+
+    with flask_app.app.test_client() as unauthenticated:
+        write = unauthenticated.post(
+            "/api/portfolio",
+            headers={"X-API-Key": "correct-secret"},
+            json=[],
+        )
+    assert write.status_code == 401
 
 
 # ===========================================================================

@@ -14,6 +14,7 @@ Belépési adatok (fejlesztésben): admin / admin
 """
 
 import functools
+import hmac
 import io
 import logging
 import os
@@ -39,6 +40,7 @@ from services.db import (create_alert, create_user, delete_alert,
                           update_item_last_price, update_last_login,
                           update_user, verify_password)
 from services.fx import get_fx_rates
+from services.portfolio_valuation import calculate_portfolio
 from services.settings_store import (get_all_settings_with_defaults,
                                       get_bool, get_int, get_setting,
                                       get_setting_bool, get_setting_int,
@@ -256,6 +258,16 @@ def get_fx():
     return jsonify(result)
 
 
+@app.route("/api/portfolio/valuation", methods=["POST"])
+@login_required
+def api_portfolio_valuation():
+    """Return shared, read-only calculations for the currently logged-in user."""
+    data = request.get_json(silent=True) or {}
+    prices = data.get("prices") if isinstance(data.get("prices"), dict) else {}
+    fx = data.get("fx") if isinstance(data.get("fx"), dict) else {}
+    return jsonify(calculate_portfolio(get_portfolio(current_user_id()), prices, fx))
+
+
 # ---------------------------------------------------------------------------
 # /api/prices
 # ---------------------------------------------------------------------------
@@ -455,6 +467,11 @@ def api_portfolio_update(item_id: int):
         updated["purchase_cost"] = cost
     if "purchase_price_source" in data:
         updated["purchase_price_source"] = str(data.get("purchase_price_source") or "").strip().lower() or None
+
+    if cash_currency_from_ticker(item.get("ticker")):
+        updated["purchase_price"] = 1.0
+        updated["purchase_cost"] = 0.0
+        updated["purchase_price_source"] = "manual"
 
     saved = update_portfolio_item_by_id(uid, item_id, updated)
     if not saved:
@@ -827,19 +844,7 @@ def _alert_current_value(alert: dict, portfolio_total_huf: float | None, prices:
 
 
 def _portfolio_total_huf(portfolio: list[dict], prices: dict, fx: dict):
-    total = 0.0
-    has_data = False
-    for item in portfolio:
-        p = prices.get(item.get("ticker")) or {}
-        if p.get("price") is None:
-            continue
-        qty = float(item.get("qty") or 0)
-        currency = (p.get("currency") or item.get("currency") or "").upper()
-        huf = _convert_currency(float(p["price"]) * qty, currency, "HUF", fx)
-        if huf is not None:
-            total += huf
-            has_data = True
-    return total if has_data else None
+    return calculate_portfolio(portfolio, prices, fx)["summary"]["current_portfolio_huf"]
 
 
 def _convert_currency(value: float, from_currency: str, to_currency: str, fx: dict):
@@ -913,8 +918,36 @@ def _alert_email_text(alert: dict, current_value: float):
     return f"Portfólió riasztás: {label}", "\n".join(parts)
 
 # ---------------------------------------------------------------------------
-# /api/export/xlsx
+# /api/excel/portfolio and /api/export/xlsx
 # ---------------------------------------------------------------------------
+
+@app.route("/api/excel/portfolio", methods=["GET"])
+def api_excel_portfolio():
+    expected_key = os.environ.get("EXCEL_API_KEY", "").strip()
+    exposed_username = os.environ.get("EXCEL_API_USERNAME", "").strip()
+    if not expected_key or not exposed_username:
+        return jsonify({"error": "Az Excel API nincs beállítva."}), 503
+
+    provided_key = request.headers.get("X-API-Key", "")
+    if not provided_key or not hmac.compare_digest(provided_key, expected_key):
+        return jsonify({"error": "Érvénytelen API-kulcs."}), 401
+
+    user = db.get_user_by_username(exposed_username)
+    if not user or not user.get("is_active", 1):
+        return jsonify({"error": "A beállított Excel-felhasználó nem található vagy inaktív."}), 503
+
+    portfolio = get_portfolio(user["id"])
+    price_result = get_prices_for_tickers([item["ticker"] for item in portfolio]) if portfolio else {"prices": {}}
+    fx_result = get_fx_rates(get_setting("fx_rate_mode", "market"))
+    valuation = calculate_portfolio(portfolio, price_result.get("prices", {}), fx_result.get("fx", {}))
+    return jsonify({
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "username": exposed_username,
+        "portfolio": valuation["records"],
+        "summary": valuation["summary"],
+        "composition": valuation["composition"],
+    })
+
 
 @app.route("/api/export/xlsx")
 @login_required
@@ -940,17 +973,8 @@ def api_export_xlsx():
 
     fx_result = get_fx_rates(get_setting("fx_rate_mode", "market"))
     fx = fx_result.get("fx", {})
-
-    def to_huf(val, currency):
-        if val is None:
-            return None
-        c = (currency or "").upper()
-        if c == "HUF":
-            return round(val, 2)
-        if c in ("GBP", "GBX") and fx.get("GBP/HUF"):
-            return round(val * fx["GBP/HUF"] / (100 if c == "GBX" else 1), 2)
-        rate = fx.get(f"{c}/HUF")
-        return round(val * rate, 2) if rate else None
+    valuation = calculate_portfolio(portfolio, prices, fx)
+    metrics_by_id = {row.get("id"): row for row in valuation["records"]}
 
     wb = Workbook()
     ws = wb.active
@@ -977,44 +1001,27 @@ def api_export_xlsx():
     ws.freeze_panes = "A2"
 
     export_ts = datetime.now().strftime("%Y.%m.%d %H:%M")
-    total_huf = 0.0
-
     for item in portfolio:
         ticker = item["ticker"]
         p = prices.get(ticker)
-        price = p["price"] if p else (item.get("last_price"))
-        currency = (p["currency"] if p else None) or item.get("currency") or ""
-        val_own = round(price * item["qty"], 4) if price is not None else None
-        val_huf = to_huf(val_own, currency)
+        metrics = metrics_by_id.get(item.get("id"), {})
+        price = metrics.get("current_price")
+        currency = metrics.get("currency") or ""
+        val_own = metrics.get("current_value_native")
+        val_huf = metrics.get("current_value_huf")
         val_eur = round(val_huf / fx["EUR/HUF"], 2) if val_huf and fx.get("EUR/HUF") else None
         val_usd = round(val_huf / fx["USD/HUF"], 2) if val_huf and fx.get("USD/HUF") else None
-        purchase_price = item.get("purchase_price")
-        purchase_cost = item.get("purchase_cost")
-        try:
-            purchase_price = float(purchase_price) if purchase_price not in (None, "") else None
-        except (TypeError, ValueError):
-            purchase_price = None
-        try:
-            purchase_cost = float(purchase_cost) if purchase_cost not in (None, "") else 0.0
-        except (TypeError, ValueError):
-            purchase_cost = 0.0
-        purchase_cost = max(purchase_cost, 0.0)
-        invested = None
-        profit_loss = None
-        return_pct = None
-        if purchase_price is not None and purchase_price > 0:
-            invested = round(purchase_price * item["qty"] + purchase_cost, 4)
-            if val_own is not None:
-                profit_loss = round(val_own - invested, 4)
-                return_pct = round((profit_loss / invested) * 100, 2) if invested > 0 else None
-        if val_huf:
-            total_huf += val_huf
+        purchase_price = metrics.get("purchase_price")
+        purchase_cost = metrics.get("purchase_cost")
+        invested = metrics.get("invested_value_native")
+        profit_loss = metrics.get("profit_loss_native")
+        return_pct = metrics.get("return_pct")
         ws.append([
             item.get("name", ticker), ticker, item.get("exchange", ""), item["qty"],
             item.get("purchase_date", ""), purchase_price, purchase_cost if purchase_cost else None,
             price, currency, (p or {}).get("source", "cache" if item.get("last_price") else ""),
             val_own, val_huf, val_eur, val_usd,
-            invested, profit_loss, return_pct,
+            invested, profit_loss, round(return_pct, 2) if return_pct is not None else None,
             (p or {}).get("quote_time") or (p or {}).get("timestamp") or item.get("last_price_time", ""),
             "Igen" if (p or {}).get("stale") else "Nem",
             "kézi" if item.get("manually_added") else "keresés",
@@ -1023,11 +1030,15 @@ def api_export_xlsx():
 
     ws.append([])
     ws.append(["ÖSSZESÍTÉS"])
+    total_huf = valuation["summary"].get("current_portfolio_huf")
     ws.append(["Összesen HUF", total_huf])
     if fx.get("EUR/HUF") and total_huf:
         ws.append(["Összesen EUR", round(total_huf / fx["EUR/HUF"], 2)])
     if fx.get("USD/HUF") and total_huf:
         ws.append(["Összesen USD", round(total_huf / fx["USD/HUF"], 2)])
+    ws.append(["Befektetett érték HUF", valuation["summary"].get("invested_huf")])
+    ws.append(["Nyereség / veszteség HUF", valuation["summary"].get("profit_loss_huf")])
+    ws.append(["Teljes hozam %", valuation["summary"].get("return_pct")])
     ws.append(["Árfolyam nélküli tételek", sum(1 for i in portfolio if i["ticker"] not in prices)])
     market_fx = fx_result.get("market") or {}
     official_fx = fx_result.get("official") or {}

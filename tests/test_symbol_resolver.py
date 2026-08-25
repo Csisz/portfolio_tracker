@@ -110,3 +110,20 @@ def test_suffix_suggestions_long_word_no_result():
 def test_suffix_suggestions_with_dot_no_result():
     suggestions = sr._suffix_suggestions("OTP.BD")
     assert suggestions == []
+
+
+@pytest.mark.parametrize("query", ["Samsung", "Samsung Electronics", "SAMEQ", "SAMEQ.F", "SSU", "SSU.DE", "SSU.F", "SMSN"])
+def test_samsung_aliases_surface_usable_frankfurt_eur_gdr(query):
+    with patch("services.symbol_resolver._search_yahoo", return_value=([], [])):
+        result = sr.search(query)
+    samsung = next(item for item in result["results"] if item["ticker"] == "SSU.F")
+    assert samsung["name"] == "Samsung Electronics Co. Ltd. GDR"
+    assert samsung["exchange"] == "Frankfurt"
+    assert samsung["currency"] == "EUR"
+
+
+def test_smsn_is_not_globally_rewritten_to_samsung_provider_ticker():
+    from services.stocks import normalize_ticker
+
+    assert normalize_ticker("SMSN") == "SMSN"
+    assert normalize_ticker("SSU.DE") == "SSU.DE"

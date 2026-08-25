@@ -28,6 +28,14 @@ _HU_TICKER_ALIASES = {
     "ANY": "ANY.BD",
 }
 
+# Known instrument-specific provider compatibility. This is intentionally not
+# part of normalize_ticker(): persisted/user-facing tickers must not be silently
+# rewritten, while Yahoo lookups for the legacy Xetra symbol can use the active
+# Frankfurt quote.
+_QUOTE_PROVIDER_TICKER_ALIASES = {
+    "SSU.DE": "SSU.F",
+}
+
 _CASH_CURRENCIES = {"HUF", "EUR", "USD"}
 
 
@@ -48,6 +56,11 @@ def normalize_ticker(ticker: str) -> str:
     """Canonical display ticker used for storage, lookup and cache keys."""
     t = str(ticker or "").strip().upper()
     return _HU_TICKER_ALIASES.get(t, t)
+
+
+def _quote_provider_ticker(ticker: str) -> str:
+    normalized = normalize_ticker(ticker)
+    return _QUOTE_PROVIDER_TICKER_ALIASES.get(normalized, normalized)
 
 # ---------------------------------------------------------------------------
 # Stooq ticker mapping – minden tőzsde
@@ -208,6 +221,7 @@ def get_last_price(ticker: str, force_refresh: bool = False) -> dict:
     G) symbols cache last_price (stale=True)
     """
     clean_ticker = normalize_ticker(ticker)
+    provider_ticker = _quote_provider_ticker(clean_ticker)
     cash_currency = cash_currency_from_ticker(clean_ticker)
     if cash_currency:
         return _quote(
@@ -231,8 +245,10 @@ def get_last_price(ticker: str, force_refresh: bool = False) -> dict:
         return cached_quote
 
     # B+C) yfinance
-    quote = _fetch_price_yfinance(clean_ticker)
+    quote = _fetch_price_yfinance(provider_ticker)
     if quote and quote.get("price") is not None:
+        if provider_ticker != clean_ticker:
+            quote["provider_ticker"] = provider_ticker
         cache.set(key, quote, PRICE_CACHE_TTL)
         return quote
 
@@ -246,8 +262,10 @@ def get_last_price(ticker: str, force_refresh: bool = False) -> dict:
 
     # E) Stale ár a symbols cache-ből
     stale_price, stale_currency, stale_time = _get_stale_price(clean_ticker)
+    if stale_price is None and provider_ticker != clean_ticker:
+        stale_price, stale_currency, stale_time = _get_stale_price(provider_ticker)
     if stale_price is not None:
-        return _quote(
+        stale_quote = _quote(
             stale_price,
             stale_currency,
             "Utolsó ismert árfolyam",
@@ -257,6 +275,9 @@ def get_last_price(ticker: str, force_refresh: bool = False) -> dict:
             market_state="UNKNOWN",
             received_at=None,
         )
+        if provider_ticker != clean_ticker:
+            stale_quote["provider_ticker"] = provider_ticker
+        return stale_quote
 
     return _quote(None, None, "none", stale=False, delayed=False)
 
@@ -267,6 +288,7 @@ def get_historical_price(ticker: str, requested_date: str) -> dict:
     Visszateres JSON-kompatibilis dict, hogy az API kozvetlenul tovabbadhassa.
     """
     clean_ticker = normalize_ticker(ticker)
+    provider_ticker = _quote_provider_ticker(clean_ticker)
     if not clean_ticker:
         return {"ok": False, "error": "Ticker is required"}
     try:
@@ -288,7 +310,7 @@ def get_historical_price(ticker: str, requested_date: str) -> dict:
     start = target - timedelta(days=14)
     end = target + timedelta(days=1)
     try:
-        t = yf.Ticker(clean_ticker)
+        t = yf.Ticker(provider_ticker)
         hist = t.history(start=start.isoformat(), end=end.isoformat(), interval="1d")
         if hist is None or hist.empty or "Close" not in hist:
             return {"ok": False, "error": "Historical price is not available"}
@@ -516,6 +538,7 @@ def get_ticker_info(ticker: str) -> dict | None:
     """Lekéri egy ticker alapadatait validáláshoz (kézi hozzáadásnál)."""
     try:
         ticker = normalize_ticker(ticker)
+        provider_ticker = _quote_provider_ticker(ticker)
         cash_currency = cash_currency_from_ticker(ticker)
         if cash_currency:
             return {
@@ -524,7 +547,7 @@ def get_ticker_info(ticker: str) -> dict | None:
                 "exchange": "",
                 "last_price": 1.0,
             }
-        t = yf.Ticker(ticker)
+        t = yf.Ticker(provider_ticker)
         fi = t.fast_info
         price = getattr(fi, "last_price", None)
         currency = getattr(fi, "currency", None)
@@ -536,7 +559,11 @@ def get_ticker_info(ticker: str) -> dict | None:
             info = {
                 "name": full.get("longName") or full.get("shortName") or ticker,
                 "currency": (full.get("currency") or currency or "").upper() or None,
-                "exchange": full.get("exchange") or exchange or "",
+                "exchange": (
+                    full.get("fullExchangeName")
+                    if provider_ticker == "SSU.F"
+                    else full.get("exchange")
+                ) or exchange or "",
             }
         except Exception:
             info = {
@@ -547,6 +574,8 @@ def get_ticker_info(ticker: str) -> dict | None:
 
         if price and float(price) > 0:
             info["last_price"] = round(float(price), 4)
+            if provider_ticker != ticker:
+                info["provider_ticker"] = provider_ticker
             return info
     except Exception as e:
         logger.warning("Ticker info lekérés hiba %s: %s", ticker, e)

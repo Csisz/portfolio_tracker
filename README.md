@@ -143,6 +143,17 @@ Az alkalmazás induláskor automatikusan létrehozza a táblákat és az admin u
 
 Admin beállításoknál ki/bekapcsolható: `enable_yahoo`, `enable_stooq`, `enable_mnb`.
 
+### Portfóliószámítás és készpénz
+
+- Az **aktuális portfólióérték** minden részvény aktuális értékét és a `CASH-HUF`, `CASH-EUR`, `CASH-USD` egyenlegeket tartalmazza, HUF-ra átszámítva.
+- A **befektetett érték** csak részvényeknél `vételi ár × darab + vételi költség`; a devizás tételek a jelenlegi FX-modellel HUF-ra átszámítva kerülnek az összesítésbe.
+- A **nyereség / veszteség** csak a részvények aktuális értéke és befektetett értéke közötti különbség.
+- A **teljes hozam**: `összes részvény P/L HUF / összes befektetett részvényérték HUF × 100`.
+- A készpénz egységára mindig 1 a saját devizájában, és nem része a befektetett értéknek, P/L-nek, hozamnak vagy részvényösszetételnek.
+- Hiányzó vételi ár esetén a tétel aktuális értéke továbbra is látható, de nem gyártunk hozzá befektetett értéket vagy eredményt; a felület jelzi a hiányos hozamot.
+
+A Samsung Electronics EUR GDR (`ISIN US7960508882`) használható Yahoo Finance tickere `SSU.F` (Frankfurt). A Samsung, Samsung Electronics, SAMEQ, SAMEQ.F, SSU, SSU.DE, SSU.F és SMSN keresések felszínre hozzák ezt a választást; az `SMSN` ticker nem íródik át automatikusan. A korábban mentett `SSU.DE` tételek megmaradnak, de az árfolyamlekérésük célzottan az `SSU.F` Yahoo tickerrel történik.
+
 ---
 
 ## 📥 Excel export
@@ -153,6 +164,31 @@ A portfólió táblázat fejlécénél **⬇ Excel** gombra kattintva:
 - Összesítő sorok az aljánál
 - Admin beállításban kikapcsolható: `excel_export_enabled`
 
+### Excel Power Query API
+
+A csak olvasható `GET /api/excel/portfolio` végpont egyszerű JSON-ban adja vissza a kiválasztott felhasználó tételeit és a webes felülettel azonos összesítést. Beállítás:
+
+```env
+EXCEL_API_KEY=hosszu-veletlen-titkos-kulcs
+EXCEL_API_USERNAME=zoltan
+```
+
+A kulcsot kizárólag az `X-API-Key` HTTP-fejlécben küldd; query stringben ne add át. Hiányzó szerverbeállítás esetén a végpont zárva marad. Power Query példa:
+
+```powerquery
+let
+    Source = Json.Document(
+        Web.Contents(
+            "https://example.com/api/excel/portfolio",
+            [Headers = [#"X-API-Key" = "YOUR_API_KEY"]]
+        )
+    )
+in
+    Source
+```
+
+Az API-kulcs csak ezt a GET végpontot védi, írási műveletre nem használható. Valódi kulcsot ne ments a repositoryba.
+
 ---
 
 ## 🧪 Tesztek
@@ -161,7 +197,7 @@ A portfólió táblázat fejlécénél **⬇ Excel** gombra kattintva:
 python -m pytest tests/ -v
 ```
 
-145 teszt, internet nélkül (mock-ok). Lefed: DB CRUD, SQLAlchemy migráció,
+Az automatizált suite internet nélkül, mockokkal fut. Lefed: DB CRUD, SQLAlchemy migráció,
 user izolácio, admin jogosultság, settings, Excel, Stooq mapping, MNB SOAP.
 
 ---
