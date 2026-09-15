@@ -138,10 +138,20 @@ Az alkalmazás induláskor automatikusan létrehozza a táblákat és az admin u
 |--------|-----------|
 | Yahoo Finance | Elsődleges részvényárfolyam (~15 perc késés) |
 | Stooq fallback | Ha Yahoo nem elérhető (`.us`, `.hu`, `.de`, `.uk` stb.) |
+| BAMOSZ | Magyar befektetési alapok napi NAV-ja ISIN alapján |
 | MNB SOAP | Hivatalos devizaárfolyamok (HUF/EUR/USD stb.) |
 | In-memory cache | TTL alapú (price_cache_minutes beállítástól) |
 
 Admin beállításoknál ki/bekapcsolható: `enable_yahoo`, `enable_stooq`, `enable_mnb`.
+
+### Támogatott azonosítók
+
+- Yahoo Finance ticker, például `AAPL`, `SSU.F` vagy `OTP.BD`.
+- Magyar befektetési alap ISIN (`HU` + 10 számjegy), például `HU0000722590`.
+
+A részvényárak napközben is frissülhetnek. A befektetési alapok BAMOSZ-ból
+érkező egy jegyre jutó nettó eszközértéke (NAV) jellemzően naponta egyszer
+frissül, ezért annak közzétételi dátuma eltérhet az aktuális naptól.
 
 ### Portfóliószámítás és készpénz
 

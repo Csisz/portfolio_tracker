@@ -121,3 +121,11 @@ def test_add_stock_card_shows_current_price_and_requires_purchase_price():
     assert "validateAddInputs('m', qty)" in html
     assert "Adj meg érvényes vételi árat." in html
     assert "Az aktuális árfolyam most nem elérhető. Add meg kézzel a vételi árat." in html
+
+
+def test_fund_isin_help_and_daily_nav_precision_are_visible():
+    html = _index_html()
+    assert "Ticker / ISIN" in html
+    assert "HU0000722590" in html
+    assert "Legfrissebb közzétett napi NAV" in html
+    assert "maximumFractionDigits: isFund ? 6" in html

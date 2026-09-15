@@ -40,6 +40,10 @@ from services.db import (create_alert, create_user, delete_alert,
                           update_item_last_price, update_last_login,
                           update_user, verify_password)
 from services.fx import get_fx_rates
+from services.fund_quote_provider import (
+    is_hungarian_isin,
+    looks_like_hungarian_isin,
+)
 from services.portfolio_valuation import calculate_portfolio
 from services.settings_store import (get_all_settings_with_defaults,
                                       get_bool, get_int, get_setting,
@@ -336,7 +340,7 @@ def api_prices():
             )
             upsert_symbol_cache({
                 "ticker": ticker,
-                "name": existing_symbol.get("name") or ticker,
+                "name": pdata.get("name") or existing_symbol.get("name") or ticker,
                 "currency": pdata.get("currency"),
                 "exchange": existing_symbol.get("exchange") or "",
                 "source": pdata.get("source"),
@@ -504,7 +508,12 @@ def api_add_manual():
     qty_raw = data.get("qty", 1)
 
     if not ticker:
-        return jsonify({"ok": False, "error": "A ticker mező kötelező."}), 400
+        return jsonify({"ok": False, "error": "A ticker / ISIN mező kötelező."}), 400
+    if looks_like_hungarian_isin(ticker) and not is_hungarian_isin(ticker):
+        return jsonify({
+            "ok": False,
+            "error": "Érvénytelen magyar ISIN. A várt forma: HU és 10 számjegy.",
+        }), 400
     try:
         qty = float(qty_raw)
         if qty <= 0:
@@ -527,6 +536,7 @@ def api_add_manual():
     validated = False
     validation_warning = None
     info = None
+    is_fund = is_hungarian_isin(ticker)
     try:
         if cash_currency:
             info = None
@@ -535,9 +545,14 @@ def api_add_manual():
             info = get_ticker_info(ticker)
         if info:
             validated = True
-            if not currency:
+            if is_fund:
                 currency = info.get("currency")
-            if not exchange:
+                exchange = info.get("exchange", "BAMOSZ")
+                if info.get("name"):
+                    name = info["name"]
+            elif not currency:
+                currency = info.get("currency")
+            if not exchange and not is_fund:
                 exchange = info.get("exchange", "")
             if name == ticker and info.get("name"):
                 name = info["name"]
@@ -551,16 +566,31 @@ def api_add_manual():
         return jsonify({"ok": False, "error": "Ervenytelen veteli koltseg"}), 400
     purchase_source = str(data.get("purchase_price_source") or "").strip().lower() or None
     price_info = None
-    if purchase_price in (None, "") and not cash_currency:
+    price_errors = []
+    if purchase_price in (None, "") and info and info.get("last_price"):
+        price_info = {
+            "price": info.get("last_price"),
+            "currency": info.get("currency"),
+            "source": info.get("source"),
+            "quote_time": info.get("last_price_time"),
+            "name": info.get("name"),
+        }
+    elif (purchase_price in (None, "") or (is_fund and not validated)) and not cash_currency:
         try:
             price_result = get_prices_for_tickers([ticker])
             price_info = (price_result.get("prices") or {}).get(ticker)
+            price_errors = price_result.get("errors") or []
         except Exception as exc:
             logger.warning("Hozzáadási árfolyam fallback hiba %s: %s", ticker, exc)
 
     if price_info and price_info.get("price") is not None:
         validated = True
-        if not currency:
+        if is_fund:
+            currency = price_info.get("currency")
+            if price_info.get("name"):
+                name = price_info["name"]
+            exchange = "BAMOSZ"
+        elif not currency:
             currency = price_info.get("currency")
         purchase_price = price_info.get("price")
         purchase_source = "current"
@@ -569,6 +599,13 @@ def api_add_manual():
         purchase_source = "current"
     elif purchase_price not in (None, "") and not purchase_source:
         purchase_source = "manual"
+
+    if is_fund and not validated:
+        provider_message = next((
+            err.get("message") for err in price_errors
+            if isinstance(err, dict) and err.get("message")
+        ), "A befektetési alap nem oldható fel a BAMOSZ adatai alapján.")
+        return jsonify({"ok": False, "error": provider_message}), 400
 
     purchase_price_value = _positive_float(purchase_price)
     if purchase_price_value is None:
@@ -582,10 +619,11 @@ def api_add_manual():
         )
 
     uid = current_user_id()
+    asset_source = "BAMOSZ" if is_fund else "manual"
     saved = insert_portfolio_item(uid, {
         "ticker": ticker, "name": name, "qty": qty,
         "currency": currency, "exchange": exchange,
-        "source": "manual", "manually_added": True,
+        "source": asset_source, "manually_added": True,
         "purchase_price": purchase_price,
         "purchase_date": purchase_date,
         "purchase_cost": purchase_cost,
@@ -594,7 +632,7 @@ def api_add_manual():
 
     sym = {
         "ticker": ticker, "name": name, "currency": currency,
-        "exchange": exchange, "source": "manual",
+        "exchange": exchange, "source": asset_source,
         "query_aliases": [ticker.lower(), name.lower()],
         "last_price": (price_info or {}).get("price") or (info.get("last_price") if info else None),
         "last_price_currency": (price_info or {}).get("currency") or currency,

@@ -12,6 +12,13 @@ from datetime import datetime
 import yfinance as yf
 
 from services import cache
+from services.fund_quote_provider import (
+    FundQuoteError,
+    fetch_fund_quote,
+    is_hungarian_isin,
+    looks_like_hungarian_isin,
+    normalize_isin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +264,38 @@ def search(query: str) -> dict:
     """
     if not query or len(query.strip()) < 1:
         return {"results": [], "errors": [], "timestamp": _ts(), "source": "none"}
+
+    normalized_query = normalize_isin(query)
+    if is_hungarian_isin(normalized_query):
+        try:
+            fund = fetch_fund_quote(normalized_query)
+            return {
+                "results": [{
+                    "ticker": fund["symbol"],
+                    "name": fund["name"],
+                    "currency": fund["currency"],
+                    "exchange": "BAMOSZ",
+                    "type": "FUND",
+                    "source": "bamosz",
+                }],
+                "errors": [],
+                "timestamp": _ts(),
+                "source": "bamosz",
+            }
+        except FundQuoteError as exc:
+            return {
+                "results": [],
+                "errors": [str(exc)],
+                "timestamp": _ts(),
+                "source": "bamosz",
+            }
+    if looks_like_hungarian_isin(normalized_query):
+        return {
+            "results": [],
+            "errors": ["Érvénytelen magyar ISIN. A várt forma: HU és 10 számjegy."],
+            "timestamp": _ts(),
+            "source": "none",
+        }
 
     local_results = _search_local(query)
     cash_queries = {"kp", "készpénz", "keszpenz", "cash", "huf", "eur", "usd"}

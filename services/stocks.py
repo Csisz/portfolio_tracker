@@ -13,6 +13,11 @@ import requests
 import yfinance as yf
 
 from services import cache
+from services.fund_quote_provider import (
+    FundQuoteError,
+    fetch_fund_quote,
+    is_hungarian_isin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +249,59 @@ def get_last_price(ticker: str, force_refresh: bool = False) -> dict:
         cached_quote["timestamp"] = cached_quote.get("quote_time")
         return cached_quote
 
+    # Hungarian investment funds are identified by ISIN and must never be sent
+    # to Yahoo or Stooq. A once-daily NAV remains a valid current fund quote.
+    if is_hungarian_isin(clean_ticker):
+        try:
+            fund = fetch_fund_quote(clean_ticker)
+            quote = _quote(
+                fund["price"],
+                fund["currency"],
+                fund["source"],
+                quote_time=fund["quote_date"],
+                delayed=False,
+                market_state="FUND",
+            )
+            quote.update({
+                "name": fund.get("name"),
+                "quote_date": fund.get("quote_date"),
+                "source_url": fund.get("source_url"),
+                "instrument_type": "FUND",
+            })
+            cache.set(key, quote, PRICE_CACHE_TTL)
+            return quote
+        except FundQuoteError as exc:
+            logger.warning("BAMOSZ fund quote error (%s): %s", clean_ticker, exc)
+            stale_price, stale_currency, stale_time = _get_stale_price(clean_ticker)
+            if stale_price is not None:
+                stale_quote = _quote(
+                    stale_price,
+                    stale_currency,
+                    "Utolsó ismert árfolyam",
+                    quote_time=stale_time,
+                    stale=True,
+                    delayed=True,
+                    market_state="FUND",
+                )
+                stale_quote.update({
+                    "instrument_type": "FUND",
+                    "provider_error": str(exc),
+                })
+                return stale_quote
+            unavailable = _quote(
+                None,
+                None,
+                "BAMOSZ",
+                stale=False,
+                delayed=False,
+                market_state="FUND",
+            )
+            unavailable.update({
+                "instrument_type": "FUND",
+                "error": str(exc),
+            })
+            return unavailable
+
     # B+C) yfinance
     quote = _fetch_price_yfinance(provider_ticker)
     if quote and quote.get("price") is not None:
@@ -306,6 +364,25 @@ def get_historical_price(ticker: str, requested_date: str) -> dict:
             "currency": cash_currency,
             "source": "Készpénz",
         }
+
+    if is_hungarian_isin(clean_ticker):
+        try:
+            fund = fetch_fund_quote(clean_ticker, as_of_date=target)
+            return {
+                "ok": True,
+                "ticker": clean_ticker,
+                "requested_date": target.isoformat(),
+                "used_date": fund["quote_date"],
+                "price": fund["price"],
+                "currency": fund["currency"],
+                "source": fund["source"],
+            }
+        except (FundQuoteError, ValueError) as exc:
+            logger.warning(
+                "BAMOSZ historical quote error (%s, %s): %s",
+                clean_ticker, requested_date, exc,
+            )
+            return {"ok": False, "error": str(exc)}
 
     start = target - timedelta(days=14)
     end = target + timedelta(days=1)
@@ -508,7 +585,10 @@ def get_prices_for_tickers(tickers: list[str], force_refresh: bool = False) -> d
                 else:
                     any_live = True
             else:
-                errors.append({"ticker": response_ticker, "message": "Árfolyam most nem elérhető."})
+                errors.append({
+                    "ticker": response_ticker,
+                    "message": entry.get("error") or "Árfolyam most nem elérhető.",
+                })
         except Exception as e:
             msg = str(e)
             if "Too Many Requests" in msg or "429" in msg or "rate limit" in msg.lower():
@@ -524,6 +604,12 @@ def get_prices_for_tickers(tickers: list[str], force_refresh: bool = False) -> d
         overall_source = "Yahoo Finance"
     else:
         overall_source = "none"
+
+    if any(
+        (entry.get("source") or "").startswith("BAMOSZ")
+        for entry in prices.values()
+    ):
+        overall_source = "BAMOSZ" if len(prices) == 1 else f"{overall_source}/BAMOSZ"
 
     received_at = _ts()
     return {
@@ -546,6 +632,19 @@ def get_ticker_info(ticker: str) -> dict | None:
                 "currency": cash_currency,
                 "exchange": "",
                 "last_price": 1.0,
+            }
+        if is_hungarian_isin(ticker):
+            quote = get_last_price(ticker)
+            if quote.get("price") is None:
+                return None
+            return {
+                "name": quote.get("name") or ticker,
+                "currency": quote.get("currency"),
+                "exchange": "BAMOSZ",
+                "last_price": quote.get("price"),
+                "last_price_time": quote.get("quote_time"),
+                "source": "BAMOSZ",
+                "instrument_type": "FUND",
             }
         t = yf.Ticker(provider_ticker)
         fi = t.fast_info

@@ -96,3 +96,32 @@ def test_missing_stock_purchase_price_is_excluded_and_warned_about():
     assert result["summary"]["missing_purchase_data"] is True
     assert result["records"][1]["invested_value_huf"] is None
     assert result["records"][1]["profit_loss_huf"] is None
+
+
+def test_eur_and_huf_fund_navs_use_existing_huf_normalization():
+    portfolio = [{
+        "id": 10,
+        "ticker": "HU0000722582",
+        "name": "HUF alap",
+        "qty": 1000,
+        "currency": "HUF",
+        "purchase_price": 2.0,
+    }, {
+        "id": 11,
+        "ticker": "HU0000722590",
+        "name": "EUR alap",
+        "qty": 10,
+        "currency": "EUR",
+        "purchase_price": 2.5,
+    }]
+    prices = {
+        "HU0000722582": {"price": 2.5, "currency": "HUF", "source": "BAMOSZ"},
+        "HU0000722590": {"price": 3.0, "currency": "EUR", "source": "BAMOSZ"},
+    }
+
+    result = calculate_portfolio(portfolio, prices, {"EUR/HUF": 400})
+
+    assert result["summary"]["current_portfolio_huf"] == 14_500
+    assert result["summary"]["invested_huf"] == 12_000
+    assert result["summary"]["profit_loss_huf"] == 2_500
+    assert [row["currency"] for row in result["records"]] == ["HUF", "EUR"]

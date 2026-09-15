@@ -6,9 +6,13 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from services.stocks import get_last_price, get_ticker_info
+from services.fund_quote_provider import is_hungarian_isin
 
 
-TICKERS = ["OTP.BD", "MOL.BD", "ANY.BD", "AAPL", "SSU.F", "SSU.DE", "EURHUF=X", "USDHUF=X"]
+TICKERS = [
+    "OTP.BD", "MOL.BD", "ANY.BD", "AAPL", "SSU.F", "SSU.DE",
+    "EURHUF=X", "USDHUF=X", "HU0000722582", "HU0000722590",
+]
 
 
 def _age_seconds(quote_time):
@@ -24,10 +28,12 @@ def _age_seconds(quote_time):
 
 def main():
     rows = []
-    for ticker in TICKERS:
+    tickers = sys.argv[1:] or TICKERS
+    for ticker in tickers:
+        ticker = str(ticker).strip().upper()
         try:
             quote = get_last_price(ticker, force_refresh=True)
-            info = get_ticker_info(ticker) if ticker in {"SSU.F", "SSU.DE"} else {}
+            info = get_ticker_info(ticker) if ticker in {"SSU.F", "SSU.DE"} or is_hungarian_isin(ticker) else {}
             rows.append({
                 "ticker": ticker,
                 "provider_ticker": quote.get("provider_ticker") or ticker,
@@ -37,6 +43,7 @@ def main():
                 "currency": quote.get("currency"),
                 "source": quote.get("source"),
                 "quote_time": quote.get("quote_time"),
+                "quote_date": quote.get("quote_date"),
                 "received_at": quote.get("received_at"),
                 "age_seconds": _age_seconds(quote.get("quote_time")),
                 "stale": quote.get("stale"),

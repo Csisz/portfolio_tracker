@@ -302,18 +302,18 @@
 
   <!-- ===== KERESŐ PANEL ===== -->
   <div class="search-panel">
-    <div class="search-panel-title">🔍 Részvény keresése és hozzáadása</div>
+    <div class="search-panel-title">🔍 Befektetés keresése és hozzáadása</div>
 
     <!-- Korábban használt -->
     <div class="recent-section" id="recent-section" style="display:none">
-      <div class="recent-title">Korábban hozzáadott részvények:</div>
+      <div class="recent-title">Korábban hozzáadott befektetések:</div>
       <div class="recent-chips" id="recent-chips"></div>
     </div>
 
     <div class="search-input-wrap" style="margin-bottom:0">
       <span class="search-icon">🔎</span>
       <input type="text" id="search-input"
-             placeholder="Cég neve vagy ticker (pl. OTP, Apple, Tesla, BMW, MOL...)"
+             placeholder="Név, ticker vagy magyar ISIN (pl. AAPL, OTP, HU0000722590)"
              oninput="onSearchInput(this.value)"
              autocomplete="off">
       <div class="search-spinner" id="search-spinner">
@@ -379,17 +379,17 @@
 
     <div class="manual-section">
       <button class="manual-toggle" onclick="toggleManual()" id="manual-toggle-btn">
-        <span id="manual-toggle-arrow">▶</span> Nem találod? Add meg kézzel a tickert.
+        <span id="manual-toggle-arrow">▶</span> Nem találod? Add meg kézzel a tickert vagy ISIN-t.
       </button>
       <div class="manual-form" id="manual-form">
         <div class="manual-grid-5">
           <div class="form-group">
-            <label>Ticker *</label>
-            <input type="text" class="form-input" id="m-ticker" placeholder="pl. OTP.BD, AAPL, BMW.DE" oninput="this.value=this.value.toUpperCase()" onblur="prefillCurrentPurchasePrice('m', this.value.trim().toUpperCase())">
+            <label>Ticker / ISIN *</label>
+            <input type="text" class="form-input" id="m-ticker" placeholder="pl. AAPL, OTP.BD, HU0000722590" oninput="this.value=this.value.toUpperCase()" onblur="prefillCurrentPurchasePrice('m', this.value.trim().toUpperCase())">
           </div>
           <div class="form-group">
-            <label>Cég neve</label>
-            <input type="text" class="form-input" id="m-name" placeholder="pl. OTP Bank">
+            <label>Befektetés neve</label>
+            <input type="text" class="form-input" id="m-name" placeholder="pl. OTP Bank (alapnál automatikus)">
           </div>
           <div class="form-group">
             <label>Deviza</label>
@@ -420,7 +420,7 @@
           </div>
         </div>
         <div class="manual-hint">
-          Tőzsdei végződések: magyar részvényeknél <strong>.BD</strong>, némeknél <strong>.DE</strong>, londoniaknál <strong>.L</strong>, bécsieknél <strong>.VI</strong>
+          Részvényeknél ticker (pl. <strong>AAPL</strong>), magyar befektetési alapoknál ISIN (pl. <strong>HU0000722590</strong>). Tőzsdei végződések: magyar részvényeknél <strong>.BD</strong>, németeknél <strong>.DE</strong>.
         </div>
         <button class="btn-manual-add" onclick="submitManual()" style="margin-top:10px">Hozzáadás / Mentés</button>
         <div class="manual-status" id="manual-status"></div>
@@ -549,8 +549,8 @@
   <div class="info-box">
     <strong>📌 Tipp:</strong>
     Magyar részvények: „OTP", „MOL", „Richter", „Telekom". Külföldi: „Apple", „Tesla", „BMW".<br>
-    Ha a kereső nem talál, próbálj <strong>kézi ticker megadást</strong> (pl. <code>OTP.BD</code>, <code>BMW.DE</code>, <code>SHEL.L</code>).<br>
-    <span id="source-info" style="color:#92400e">Részvényárfolyamok: Yahoo Finance / Stooq. Devizaárfolyamok: MNB.</span>
+    Ha a kereső nem talál, próbálj <strong>kézi ticker / ISIN megadást</strong> (pl. <code>OTP.BD</code>, <code>AAPL</code>, <code>HU0000722590</code>).<br>
+    <span id="source-info" style="color:#92400e">Részvényárfolyamok: Yahoo Finance / Stooq. Befektetési alapok: BAMOSZ. Devizaárfolyamok: MNB.</span>
   </div>
 
 </div>
@@ -881,6 +881,7 @@
 
   function fmtDateTime(value) {
     if (!value) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return fmtDate(value);
     const d = new Date(value);
     if (!Number.isNaN(d.getTime())) {
       return d.toLocaleString('hu-HU', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
@@ -901,6 +902,7 @@
     if (!p) return '';
     if (p.source === 'Készpénz') return 'Készpénz';
     if (p.stale) return 'Utolsó ismert árfolyam';
+    if (p.market_state === 'FUND') return 'Legfrissebb közzétett napi NAV';
     if (p.delayed) return p.market_state === 'CLOSED' ? 'Piac zárva – utolsó elérhető záróár' : 'Késleltetett árfolyam';
     if ((p.source || '').includes('cache')) return 'Cache-ből';
     return 'Legfrissebb elérhető árfolyam';
@@ -961,6 +963,7 @@
     tbody.innerHTML = portfolio.map((s, i) => {
       const m = getPositionMetrics(s);
       const p = m.p;
+      const displayName = (p && p.name) || s.name || '';
       const price = m.price;
       const currency = m.currency;
       const tagCls = currency ? ('tag-' + currency.toLowerCase()) : 'tag-other';
@@ -970,7 +973,8 @@
       let priceStr;
       if (p && price != null) {
         const isCash = String(s.ticker || '').startsWith('CASH-');
-        const priceFormatted = price.toLocaleString('hu-HU', {minimumFractionDigits: isCash ? 0 : 2, maximumFractionDigits: isCash ? 0 : 4}) + ' ' + (currency || '');
+        const isFund = p.market_state === 'FUND' || /^HU\d{10}$/.test(String(s.ticker || ''));
+        const priceFormatted = price.toLocaleString('hu-HU', {minimumFractionDigits: isCash ? 0 : 2, maximumFractionDigits: isFund ? 6 : (isCash ? 0 : 4)}) + ' ' + (currency || '');
         const quoteTime = p.quote_time || p.timestamp;
         const timeHtml = quoteTime ? `<span class="cell-sub">Árfolyam időpontja: ${fmtDateTime(quoteTime)}</span>` : '';
         const providerTickerHtml = p.provider_ticker ? `<span class="cell-sub">Yahoo ticker: ${escapeHtml(p.provider_ticker)}</span>` : '';
@@ -1019,7 +1023,7 @@
         </div></td>
         <td>
           <div class="ticker-badge">${escapeHtml(s.ticker)}${tag}</div>
-          <div class="stock-name">${escapeHtml(s.name || '')}${isCash ? ' · pénzegyenleg' : ''}</div>
+          <div class="stock-name">${escapeHtml(displayName)}${isCash ? ' · pénzegyenleg' : ''}</div>
           ${purchaseInfo}
         </td>
         <td class="num">
@@ -1395,13 +1399,13 @@
 
       if (!results.length) {
         html += `<div class="sr-none">
-          Nincs találat. Próbáld a kézi hozzáadással, vagy a tőzsdei végződéssel:<br>
-          <small style="color:#aaa">pl. OTP.BD, BMW.DE, SHEL.L, NVDA, MSFT</small>
+          Nincs találat. Próbáld a kézi hozzáadással, tickerrel vagy magyar ISIN-nel:<br>
+          <small style="color:#aaa">pl. OTP.BD, BMW.DE, NVDA, HU0000722590</small>
         </div>`;
       } else {
         html += results.map(item => {
-          const srcLabel = {'local':'helyi lista','cache':'korábban mentett','yahoo':'Yahoo','suffix_hint':'javaslat'}[item.source] || item.source;
-          const srcCls = {'local':'src-local','cache':'src-cache','yahoo':'src-yahoo','suffix_hint':'src-suffix'}[item.source] || 'src-local';
+          const srcLabel = {'local':'helyi lista','cache':'korábban mentett','yahoo':'Yahoo','bamosz':'BAMOSZ','suffix_hint':'javaslat'}[item.source] || item.source;
+          const srcCls = {'local':'src-local','cache':'src-cache','yahoo':'src-yahoo','bamosz':'src-local','suffix_hint':'src-suffix'}[item.source] || 'src-local';
           const safeName = (item.name || '').replace(/'/g, "\\'");
           const safeExch = (item.exchange || '').replace(/'/g, "\\'");
           const safeCurr = (item.currency || '').replace(/'/g, "\\'");
@@ -1520,7 +1524,7 @@
     const exchange = document.getElementById('m-exchange').value.trim();
     const qty    = parseFloat(document.getElementById('m-qty').value);
 
-    if (!ticker) { setManualStatus('err', 'A ticker mező kötelező.'); return; }
+    if (!ticker) { setManualStatus('err', 'A ticker / ISIN mező kötelező.'); return; }
     if (!validateAddInputs('m', qty)) return;
 
     setManualStatus('warn', 'Feldolgozás...');
@@ -1688,8 +1692,9 @@
     }
     const c = (p.currency || currency || selectedStock?.currency || '').toUpperCase();
     const price = Number(p.price);
+    const digits = p.market_state === 'FUND' ? 6 : 0;
     el.className = 'sel-price';
-    el.innerHTML = `Aktuális árfolyam: ${fmtMoney(price, c)}${addPriceSourceLabel(p) ? `<br><span class="src-badge">${addPriceSourceLabel(p)}</span>` : ''}`;
+    el.innerHTML = `Aktuális árfolyam: ${fmtMoney(price, c, digits)}${addPriceSourceLabel(p) ? `<br><span class="src-badge">${addPriceSourceLabel(p)}</span>` : ''}`;
   }
 
   function setSelectedCurrentPriceLoading() {
@@ -1725,7 +1730,8 @@
       if (prefix === 'sel') setSelectedCurrentPrice(p);
       if (priceEl && !priceEl.value && Number.isFinite(price) && price > 0) priceEl.value = price;
       if (prefix === 'm' && Number.isFinite(price) && price > 0) {
-        setManualStatus('ok', `Aktuális árfolyam: ${fmtMoney(price, p.currency || '')}. Átírhatod a tényleges vételi árra.`);
+        const digits = p.market_state === 'FUND' ? 6 : 0;
+        setManualStatus('ok', `Aktuális árfolyam: ${fmtMoney(price, p.currency || '', digits)}. Átírhatod a tényleges vételi árra.`);
       }
     } catch(e) {
       if (prefix === 'sel') setSelectedCurrentPrice(null);

@@ -485,6 +485,70 @@ def test_add_manual_accepts_purchase_price(client):
     assert saved["purchase_cost"] == 1.25
 
 
+def test_add_manual_resolves_lowercase_fund_isin_name_currency_and_price(client):
+    fund_info = {
+        "name": "Accorde Spartan Görög Részvényalap – B sorozat",
+        "currency": "EUR",
+        "exchange": "BAMOSZ",
+        "last_price": 2.98626,
+        "last_price_time": "2026-09-10",
+        "source": "BAMOSZ",
+        "instrument_type": "FUND",
+    }
+    with patch("app.get_ticker_info", return_value=fund_info), \
+         patch("app.get_prices_for_tickers") as prices:
+        response = client.post("/api/add_manual", json={
+            "ticker": " hu0000722590 ",
+            "name": "Wrong manual name",
+            "currency": "USD",
+            "qty": 10,
+        })
+
+    assert response.status_code == 200
+    prices.assert_not_called()
+    item = response.get_json()["item"]
+    assert item["ticker"] == "HU0000722590"
+    assert item["name"] == "Accorde Spartan Görög Részvényalap – B sorozat"
+    assert item["currency"] == "EUR"
+    assert item["exchange"] == "BAMOSZ"
+    assert item["purchase_price"] == 2.98626
+    assert item["source"] == "BAMOSZ"
+
+
+def test_add_manual_rejects_unknown_fund_even_with_manual_price(client):
+    with patch("app.get_ticker_info", return_value=None), \
+         patch("app.get_prices_for_tickers", return_value={
+             "prices": {},
+             "errors": [{
+                 "ticker": "HU0000000000",
+                 "message": "A BAMOSZ nem talált alapot ehhez az ISIN-hez: HU0000000000",
+             }],
+         }):
+        response = client.post("/api/add_manual", json={
+            "ticker": "HU0000000000",
+            "qty": 10,
+            "purchase_price": 123.45,
+        })
+
+    assert response.status_code == 400
+    assert "nem talált alapot" in response.get_json()["error"]
+    assert client.get("/api/portfolio").get_json() == []
+
+
+def test_add_manual_rejects_malformed_hungarian_isin(client):
+    with patch("app.get_ticker_info") as info, patch("app.get_prices_for_tickers") as prices:
+        response = client.post("/api/add_manual", json={
+            "ticker": "HU000072259",
+            "qty": 1,
+            "purchase_price": 2.0,
+        })
+
+    assert response.status_code == 400
+    assert "Érvénytelen magyar ISIN" in response.get_json()["error"]
+    info.assert_not_called()
+    prices.assert_not_called()
+
+
 def test_add_manual_same_ticker_creates_separate_lots(client):
     with patch("app.get_ticker_info", return_value=None):
         r1 = client.post("/api/add_manual", json={

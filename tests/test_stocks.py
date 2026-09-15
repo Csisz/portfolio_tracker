@@ -13,6 +13,7 @@ from services.stocks import (
     get_last_price, get_prices_for_tickers, is_cash_ticker, cash_currency_from_ticker,
     normalize_ticker,
 )
+from services.fund_quote_provider import FundProviderUnavailableError
 
 
 def _quote(price, currency="HUF", source="Yahoo Finance", quote_time="2026-06-04T10:05:00+02:00", stale=False, delayed=False):
@@ -74,6 +75,88 @@ def test_cash_eur_quote_is_exact_and_never_calls_providers():
     assert result["prices"]["CASH-EUR"]["price"] == 1.0
     assert result["prices"]["CASH-EUR"]["currency"] == "EUR"
     assert result["errors"] == []
+
+
+def test_hungarian_isin_routes_to_bamosz_without_yahoo_or_stooq():
+    from services import cache as svc_cache
+    svc_cache.delete("price:HU0000722590")
+    fund = {
+        "symbol": "HU0000722590",
+        "name": "Teszt Alap – B sorozat",
+        "price": 2.98626,
+        "currency": "EUR",
+        "quote_date": "2026-09-10",
+        "source": "BAMOSZ",
+        "source_url": "https://www.bamosz.hu/alapoldal?isin=HU0000722590",
+    }
+    with patch("services.stocks.fetch_fund_quote", return_value=fund) as bamosz, \
+         patch("services.stocks._fetch_price_yfinance") as yahoo, \
+         patch("services.stocks._fetch_price_stooq") as stooq:
+        quote = get_last_price(" hu0000722590 ", force_refresh=True)
+
+    bamosz.assert_called_once_with("HU0000722590")
+    yahoo.assert_not_called()
+    stooq.assert_not_called()
+    assert quote["price"] == 2.98626
+    assert quote["currency"] == "EUR"
+    assert quote["quote_time"] == "2026-09-10"
+    assert quote["market_state"] == "FUND"
+    assert quote["stale"] is False
+
+
+def test_hungarian_isin_provider_failure_never_falls_through_to_yahoo():
+    from services import cache as svc_cache
+    svc_cache.delete("price:HU0000722590")
+    error = FundProviderUnavailableError("A BAMOSZ jelenleg nem érhető el.")
+    with patch("services.stocks.fetch_fund_quote", side_effect=error), \
+         patch("services.stocks._fetch_price_yfinance") as yahoo, \
+         patch("services.stocks._fetch_price_stooq") as stooq, \
+         patch("services.stocks._get_stale_price", return_value=(None, None, None)):
+        result = get_prices_for_tickers(["HU0000722590"], force_refresh=True)
+
+    yahoo.assert_not_called()
+    stooq.assert_not_called()
+    assert result["prices"] == {}
+    assert result["errors"] == [{
+        "ticker": "HU0000722590",
+        "message": "A BAMOSZ jelenleg nem érhető el.",
+    }]
+
+
+def test_hungarian_isin_refresh_failure_keeps_nonzero_stored_quote():
+    from services import cache as svc_cache
+    svc_cache.delete("price:HU0000722582")
+    with patch(
+        "services.stocks.fetch_fund_quote",
+        side_effect=FundProviderUnavailableError("timeout"),
+    ), patch(
+        "services.stocks._get_stale_price",
+        return_value=(2.388996, "HUF", "2026-09-10"),
+    ):
+        quote = get_last_price("HU0000722582", force_refresh=True)
+
+    assert quote["price"] == 2.388996
+    assert quote["currency"] == "HUF"
+    assert quote["stale"] is True
+    assert quote["price"] != 0
+
+
+def test_hungarian_isin_historical_lookup_uses_bamosz_not_yahoo():
+    fund = {
+        "price": 2.8,
+        "currency": "EUR",
+        "quote_date": "2024-01-12",
+        "source": "BAMOSZ",
+    }
+    with patch("services.stocks.fetch_fund_quote", return_value=fund) as bamosz, \
+         patch("services.stocks.yf.Ticker") as yahoo:
+        result = get_historical_price("HU0000722590", "2024-01-15")
+
+    bamosz.assert_called_once()
+    assert bamosz.call_args.kwargs["as_of_date"].isoformat() == "2024-01-15"
+    yahoo.assert_not_called()
+    assert result["used_date"] == "2024-01-12"
+    assert result["currency"] == "EUR"
 
 
 def test_stooq_mapping_mol():

@@ -14,6 +14,46 @@ def _tickers(results):
     return [r["ticker"] for r in results]
 
 
+@pytest.mark.parametrize("symbol", ["HU0000722590", " hu0000722590 "])
+def test_hungarian_isin_recognition_and_normalization(symbol):
+    assert sr.is_hungarian_isin(symbol) is True
+    assert sr.normalize_isin(symbol) == "HU0000722590"
+
+
+@pytest.mark.parametrize("symbol", ["AAPL", "HU000072259", "HU000072259X", "DE0000722590"])
+def test_non_hungarian_or_malformed_isin_is_not_recognized(symbol):
+    assert sr.is_hungarian_isin(symbol) is False
+
+
+def test_isin_search_uses_bamosz_and_never_yahoo():
+    fund = {
+        "symbol": "HU0000722590",
+        "name": "Teszt Alap – B sorozat",
+        "price": 2.98626,
+        "currency": "EUR",
+        "quote_date": "2026-09-10",
+        "source": "BAMOSZ",
+    }
+    with patch("services.symbol_resolver.fetch_fund_quote", return_value=fund) as bamosz, \
+         patch("services.symbol_resolver._search_yahoo") as yahoo:
+        result = sr.search(" hu0000722590 ")
+
+    bamosz.assert_called_once_with("HU0000722590")
+    yahoo.assert_not_called()
+    assert result["results"][0]["ticker"] == "HU0000722590"
+    assert result["results"][0]["currency"] == "EUR"
+    assert result["results"][0]["type"] == "FUND"
+
+
+def test_malformed_hungarian_isin_search_never_calls_yahoo():
+    with patch("services.symbol_resolver._search_yahoo") as yahoo:
+        result = sr.search("HU000072259")
+
+    yahoo.assert_not_called()
+    assert result["results"] == []
+    assert "Érvénytelen magyar ISIN" in result["errors"][0]
+
+
 # ---- Helyi fallback keresés ----
 
 def test_search_otp_exact():
